@@ -37,7 +37,7 @@ export default {
 };
 
 async function jailUser(interaction) {
-    // Require Timeout Members / Moderate Members permission
+    // Timeout Members permission
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ You need **Timeout Members** permission to use `.jail`.',
@@ -45,74 +45,100 @@ async function jailUser(interaction) {
         });
     }
 
-    const target = interaction.options.getMember('user');
-    const reason =
-        interaction.options.getString('reason')?.trim() ||
-        'No reason provided';
+    // Get the user from the prefix command
+    const target =
+        interaction.options.getMember('user') ||
+        interaction.options.getUser('user');
 
     if (!target) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ User not found.',
+            content: '❌ User not found. Use `.jail @user reason`.',
             ephemeral: true,
         });
     }
 
-    if (target.id === interaction.user.id) {
+    const reason =
+        interaction.options.getString('reason')?.trim() ||
+        'No reason provided';
+
+    const targetMember =
+        target.member || target;
+
+    if (!targetMember.roles) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I could not find that member in this server.',
+            ephemeral: true,
+        });
+    }
+
+    if (targetMember.id === interaction.user.id) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ You cannot jail yourself.',
             ephemeral: true,
         });
     }
 
-    if (target.user.bot) {
+    if (targetMember.user?.bot) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ You cannot jail a bot.',
             ephemeral: true,
         });
     }
 
-    const jailRole = interaction.guild.roles.cache.get(JAIL_INMATE_ROLE_ID);
+    const guild = interaction.guild;
+    const jailRole = guild.roles.cache.get(JAIL_INMATE_ROLE_ID);
 
     if (!jailRole) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ Jail Inmate role was not found.',
+            content: '❌ **Jail Inmate** role was not found.',
             ephemeral: true,
         });
     }
 
-    // Check the bot can manage the Jail Inmate role
+    const botMember = guild.members.me;
+
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I need **Manage Roles** permission.',
+            ephemeral: true,
+        });
+    }
+
     if (!jailRole.editable) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ I cannot manage the **Jail Inmate** role. Make sure my bot role is above it.',
+            content:
+                '❌ I cannot manage the **Jail Inmate** role. Put the Jail Inmate role below my bot role.',
             ephemeral: true,
         });
     }
 
-    // Check the bot can manage the target
-    if (!target.manageable) {
+    if (!targetMember.manageable) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ I cannot manage that user. Make sure my bot role is higher than their highest role.',
+            content:
+                '❌ I cannot manage that user because their highest role is above my bot role.',
             ephemeral: true,
         });
     }
 
     try {
-        // Remove all roles except @everyone
-        await target.roles.set(
+        // Remove every role and give Jail Inmate
+        await targetMember.roles.set(
             [JAIL_INMATE_ROLE_ID],
-            `Jailed permanently: ${reason}`
+            `Permanently jailed by ${interaction.user.tag}: ${reason}`
         );
 
         return InteractionHelper.universalReply(interaction, {
             content:
-                `🔒 **${target.user.tag}** has been **jailed permanently**.\n` +
+                `🔒 ${targetMember} has been **jailed permanently**.\n` +
                 `📝 **Reason:** ${reason}`,
         });
+
     } catch (error) {
         console.error('JAIL ERROR:', error);
 
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ I could not jail that user. Check my **Manage Roles** permission and role hierarchy.',
+            content:
+                '❌ I could not jail that user. Check **Manage Roles** and the bot role hierarchy.',
             ephemeral: true,
         });
     }
