@@ -6,112 +6,92 @@ export default {
         .setName('trole')
         .setDescription('Take a role from a user')
         .addRoleOption(option =>
-            option.setName('role')
-                .setDescription('The role to remove')
+            option
+                .setName('role')
+                .setDescription('Role to remove')
                 .setRequired(true)
         )
         .addUserOption(option =>
-            option.setName('user')
-                .setDescription('The user to remove the role from')
+            option
+                .setName('user')
+                .setDescription('User to remove the role from')
                 .setRequired(true)
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
-    category: 'moderation',
+    category: 'Moderation',
 
     abuseProtection: {
         enabled: false,
     },
 
-    async execute(interaction) {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ You need **Kick Members** permission.',
-                ephemeral: true,
-            });
-        }
-
-        const role = interaction.options.getRole('role');
-        const user = interaction.options.getUser('user');
-
-        const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
-        if (!member) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ User not found.',
-                ephemeral: true,
-            });
-        }
-
-        try {
-            await member.roles.remove(role);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: `✅ Removed **${role.name}** from ${member}.`,
-            });
-        } catch (error) {
-            console.error('TROLE ERROR:', error);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not remove that role.',
-                ephemeral: true,
-            });
-        }
+    async execute(interaction, config, client) {
+        return takeRole(interaction);
     },
 
-    async prefixExecute(interaction) {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ You need **Kick Members** permission.',
-                ephemeral: true,
-            });
-        }
-
-        const roleArg = interaction.options.getString('role');
-        const userArg = interaction.options.getString('user');
-
-        const roleMatch = roleArg?.match(/^<@&(\d+)>$/);
-        const userMatch = userArg?.match(/^<@!?(\d+)>$/);
-
-        if (!roleMatch || !userMatch) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ Use: `.trole @role @user`',
-                ephemeral: true,
-            });
-        }
-
-        const role = interaction.guild.roles.cache.get(roleMatch[1]);
-        const member = await interaction.guild.members
-            .fetch(userMatch[1])
-            .catch(() => null);
-
-        if (!role) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ Role not found.',
-                ephemeral: true,
-            });
-        }
-
-        if (!member) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ User not found.',
-                ephemeral: true,
-            });
-        }
-
-        try {
-            await member.roles.remove(role);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: `✅ Removed **${role.name}** from ${member}.`,
-            });
-        } catch (error) {
-            console.error('TROLE PREFIX ERROR:', error);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not remove that role.',
-                ephemeral: true,
-            });
-        }
+    async prefixExecute(interaction, config, client) {
+        return takeRole(interaction);
     },
 };
+
+async function takeRole(interaction) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ You need **Ban Members** permission to use `.trole`.',
+            ephemeral: true,
+        });
+    }
+
+    const role = interaction.options.getRole('role');
+    const target = interaction.options.getMember('user');
+
+    if (!role || !target) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ User or role not found.',
+            ephemeral: true,
+        });
+    }
+
+    if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I need **Manage Roles** permission.',
+            ephemeral: true,
+        });
+    }
+
+    if (!role.editable) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I cannot manage that role. Make sure my bot role is above it.',
+            ephemeral: true,
+        });
+    }
+
+    if (role.position >= interaction.member.roles.highest.position) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ You cannot remove a role equal to or higher than your highest role.',
+            ephemeral: true,
+        });
+    }
+
+    if (!target.roles.cache.has(role.id)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: `❌ ${target} does not have ${role}.`,
+            ephemeral: true,
+        });
+    }
+
+    try {
+        await target.roles.remove(role, `Removed by ${interaction.user.tag}`);
+
+        return InteractionHelper.universalReply(interaction, {
+            content: `✅ Removed ${role} from ${target}.`,
+        });
+    } catch (error) {
+        console.error('TROLE ERROR:', error);
+
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I could not remove that role.',
+            ephemeral: true,
+        });
+    }
+}
