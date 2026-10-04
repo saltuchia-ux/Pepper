@@ -96,7 +96,7 @@ async function handlePrefixCommand(message, client) {
 
     if (!command) return;
 
-    if (!supportsPrefixExecution(command)) return;
+    
 
     await executePrefixCommand(
       command,
