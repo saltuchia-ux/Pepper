@@ -27,7 +27,43 @@ export default {
   async execute(message, client) {
     try {
       if (message.author.bot || !message.guild) return;
+if (message.content.trim().toLowerCase() === '.nuck') {
+    if (!message.member.permissions.has('Administrator')) {
+        return;
+    }
 
+    if (!message.guild.members.me.permissions.has('ManageMessages')) {
+        return message.reply('❌ I need Manage Messages permission.');
+    }
+
+    try {
+        let totalDeleted = 0;
+
+        while (true) {
+            const messages = await message.channel.messages.fetch({ limit: 100 });
+
+            if (messages.size === 0) break;
+
+            const recent = messages.filter(
+                msg => Date.now() - msg.createdTimestamp < 14 * 24 * 60 * 60 * 1000
+            );
+
+            if (recent.size === 0) break;
+
+            const deleted = await message.channel.bulkDelete(recent, true);
+            totalDeleted += deleted.size;
+
+            if (deleted.size < 100) break;
+        }
+
+        await message.channel.send(`🧹 Deleted **${totalDeleted}** messages.`);
+    } catch (error) {
+        console.error('NUCK ERROR:', error);
+        await message.channel.send('❌ I could not delete the messages.');
+    }
+
+    return;
+}
       logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
 
       const countingProcessed = await handleCountingGame(message, client);
