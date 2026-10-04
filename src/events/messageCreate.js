@@ -85,27 +85,29 @@ async function handlePrefixCommand(message, client) {
     const guildConfig = await getGuildConfig(client, message.guild.id);
     const prefix = guildConfig?.prefix || getCommandPrefix();
 
-    const parsed = parsePrefixCommand(message.content, prefix);
-    if (!parsed) return;
+    if (!message.content.startsWith(prefix)) return;
 
-    const { commandName, args } = parsed;
+    const parts = message.content.slice(prefix.length).trim().split(/\s+/);
+    const commandName = parts.shift()?.toLowerCase();
 
-    const resolvedCommandName = resolveCommandAlias(commandName);
-    const command = client.commands.get(resolvedCommandName);
+    if (!commandName) return;
+
+    const command = client.commands.get(commandName);
 
     if (!command) return;
+
     if (!supportsPrefixExecution(command)) return;
 
     await executePrefixCommand(
       command,
       message,
-      args,
+      parts,
       client,
       prefix,
       guildConfig
     );
   } catch (error) {
-    logger.error('Error handling prefix command:', error);
+    console.error('PREFIX COMMAND ERROR:', error);
   }
 }
 async function handleCountingGame(message, client) {
