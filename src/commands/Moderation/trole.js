@@ -30,11 +30,77 @@ export default {
     },
 
     async prefixExecute(interaction, config, client) {
-        return takeRole(interaction);
+        const args =
+            interaction.options?._hoistedOptions?.map(option => String(option.value)) || [];
+
+        const roleArg = args[0];
+        const userArg = args[1];
+
+        const roleId = extractRoleId(roleArg);
+        const userId = extractUserId(userArg);
+
+        if (!roleId) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ Role not found. Use a role mention like `@Role`.',
+                ephemeral: true,
+            });
+        }
+
+        if (!userId) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ User not found. Use a user mention like `@User`.',
+                ephemeral: true,
+            });
+        }
+
+        const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+        const target = await interaction.guild.members.fetch(userId).catch(() => null);
+
+        if (!role) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ I could not find that role.',
+                ephemeral: true,
+            });
+        }
+
+        if (!target) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ I could not find that user.',
+                ephemeral: true,
+            });
+        }
+
+        return takeRole(interaction, role, target);
     },
 };
 
-async function takeRole(interaction) {
+function extractRoleId(value) {
+    if (!value) return null;
+
+    const text = String(value).trim();
+
+    const mention = text.match(/^<@&(\d+)>$/);
+    if (mention) return mention[1];
+
+    if (/^\d+$/.test(text)) return text;
+
+    return null;
+}
+
+function extractUserId(value) {
+    if (!value) return null;
+
+    const text = String(value).trim();
+
+    const mention = text.match(/^<@!?(\d+)>$/);
+    if (mention) return mention[1];
+
+    if (/^\d+$/.test(text)) return text;
+
+    return null;
+}
+
+async function takeRole(interaction, suppliedRole = null, suppliedTarget = null) {
     if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ You need **Ban Members** permission to use `.trole`.',
@@ -42,26 +108,60 @@ async function takeRole(interaction) {
         });
     }
 
-    const role = interaction.options.getRole('role');
-    const target = interaction.options.getMember('user');
+    const guild = interaction.guild;
 
-    if (!role || !target) {
+    const role =
+        suppliedRole || interaction.options.getRole('role');
+
+    const target =
+        suppliedTarget || interaction.options.getMember('user');
+
+    if (!role) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ User or role not found.',
+            content: '❌ Role not found.',
             ephemeral: true,
         });
     }
 
-    if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    if (!target) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ User not found.',
+            ephemeral: true,
+        });
+    }
+
+    const botMember =
+        guild.members.me ||
+        await guild.members.fetchMe().catch(() => null);
+
+    if (!botMember) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I could not find my bot member.',
+            ephemeral: true,
+        });
+    }
+
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ I need **Manage Roles** permission.',
             ephemeral: true,
         });
     }
 
-    if (!role.editable) {
+    if (role.managed) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ I cannot manage that role. Make sure my bot role is above it.',
+            content: '❌ That role is managed by Discord and cannot be removed.',
+            ephemeral: true,
+        });
+    }
+
+    if (botMember.roles.highest.position <= role.position) {
+        return InteractionHelper.universalReply(interaction, {
+            content:
+                `❌ I cannot manage ${role}.\n` +
+                `My highest role: **${botMember.roles.highest.name}**\n` +
+                `My position: **${botMember.roles.highest.position}**\n` +
+                `Target position: **${role.position}**`,
             ephemeral: true,
         });
     }
@@ -81,7 +181,10 @@ async function takeRole(interaction) {
     }
 
     try {
-        await target.roles.remove(role, `Removed by ${interaction.user.tag}`);
+        await target.roles.remove(
+            role,
+            `Removed by ${interaction.user.tag}`
+        );
 
         return InteractionHelper.universalReply(interaction, {
             content: `✅ Removed ${role} from ${target}.`,
@@ -90,7 +193,9 @@ async function takeRole(interaction) {
         console.error('TROLE ERROR:', error);
 
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ I could not remove that role.',
+            content:
+                `❌ Discord rejected the role change.\n` +
+                `Error: \`${error.message}\``,
             ephemeral: true,
         });
     }
