@@ -6,112 +6,92 @@ export default {
         .setName('grole')
         .setDescription('Give a role to a user')
         .addRoleOption(option =>
-            option.setName('role')
-                .setDescription('The role to give')
+            option
+                .setName('role')
+                .setDescription('Role to give')
                 .setRequired(true)
         )
         .addUserOption(option =>
-            option.setName('user')
-                .setDescription('The user to give the role to')
+            option
+                .setName('user')
+                .setDescription('User to give the role to')
                 .setRequired(true)
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
-    category: 'moderation',
+    category: 'Moderation',
 
     abuseProtection: {
         enabled: false,
     },
 
-    async execute(interaction) {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ You need **Kick Members** permission.',
-                ephemeral: true,
-            });
-        }
-
-        const role = interaction.options.getRole('role');
-        const user = interaction.options.getUser('user');
-
-        const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
-        if (!member) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ User not found.',
-                ephemeral: true,
-            });
-        }
-
-        try {
-            await member.roles.add(role);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: `✅ Gave **${role.name}** to ${member}.`,
-            });
-        } catch (error) {
-            console.error('GROLE ERROR:', error);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not give that role.',
-                ephemeral: true,
-            });
-        }
+    async execute(interaction, config, client) {
+        return giveRole(interaction);
     },
 
-    async prefixExecute(interaction) {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ You need **Kick Members** permission.',
-                ephemeral: true,
-            });
-        }
-
-        const roleArg = interaction.options.getString('role');
-        const userArg = interaction.options.getString('user');
-
-        const roleMatch = roleArg?.match(/^<@&(\d+)>$/);
-        const userMatch = userArg?.match(/^<@!?(\d+)>$/);
-
-        if (!roleMatch || !userMatch) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ Use: `.grole @role @user`',
-                ephemeral: true,
-            });
-        }
-
-        const role = interaction.guild.roles.cache.get(roleMatch[1]);
-        const member = await interaction.guild.members
-            .fetch(userMatch[1])
-            .catch(() => null);
-
-        if (!role) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ Role not found.',
-                ephemeral: true,
-            });
-        }
-
-        if (!member) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ User not found.',
-                ephemeral: true,
-            });
-        }
-
-        try {
-            await member.roles.add(role);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: `✅ Gave **${role.name}** to ${member}.`,
-            });
-        } catch (error) {
-            console.error('GROLE PREFIX ERROR:', error);
-
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not give that role.',
-                ephemeral: true,
-            });
-        }
+    async prefixExecute(interaction, config, client) {
+        return giveRole(interaction);
     },
 };
+
+async function giveRole(interaction) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ You need **Ban Members** permission to use `.grole`.',
+            ephemeral: true,
+        });
+    }
+
+    const role = interaction.options.getRole('role');
+    const target = interaction.options.getMember('user');
+
+    if (!role || !target) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ User or role not found.',
+            ephemeral: true,
+        });
+    }
+
+    if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I need **Manage Roles** permission.',
+            ephemeral: true,
+        });
+    }
+
+    if (!role.editable) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I cannot manage that role. Make sure my bot role is above it.',
+            ephemeral: true,
+        });
+    }
+
+    if (role.position >= interaction.member.roles.highest.position) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ You cannot give a role equal to or higher than your highest role.',
+            ephemeral: true,
+        });
+    }
+
+    if (target.roles.cache.has(role.id)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: `❌ ${target} already has ${role}.`,
+            ephemeral: true,
+        });
+    }
+
+    try {
+        await target.roles.add(role, `Given by ${interaction.user.tag}`);
+
+        return InteractionHelper.universalReply(interaction, {
+            content: `✅ Gave ${role} to ${target}.`,
+        });
+    } catch (error) {
+        console.error('GROLE ERROR:', error);
+
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I could not give that role.',
+            ephemeral: true,
+        });
+    }
+}
