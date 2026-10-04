@@ -67,12 +67,13 @@ export default {
             });
         }
 
-        const content = interaction.message.content;
+        const roleArg = interaction.options.getString('role');
+        const userArg = interaction.options.getString('user');
 
-        const roleMatch = content.match(/<@&(\d+)>/);
-        const userMatch = content.match(/<@!?(\d+)>/g);
+        const roleMatch = roleArg?.match(/^<@&(\d+)>$/);
+        const userMatch = userArg?.match(/^<@!?(\d+)>$/);
 
-        if (!roleMatch || !userMatch || userMatch.length < 1) {
+        if (!roleMatch || !userMatch) {
             return InteractionHelper.universalReply(interaction, {
                 content: '❌ Use: `.grole @role @user`',
                 ephemeral: true,
@@ -80,13 +81,8 @@ export default {
         }
 
         const role = interaction.guild.roles.cache.get(roleMatch[1]);
-
-        const userId = userMatch
-            .map(x => x.match(/\d+/)?.[0])
-            .find(id => id !== roleMatch[1]);
-
         const member = await interaction.guild.members
-            .fetch(userId)
+            .fetch(userMatch[1])
             .catch(() => null);
 
         if (!role) {
