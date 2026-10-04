@@ -59,14 +59,26 @@ async function createRole(interaction) {
         });
     }
 
-    if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    const guild = interaction.guild;
+
+    const botMember =
+        guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+
+    if (!botMember) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I could not find my bot member.',
+            ephemeral: true,
+        });
+    }
+
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ I need **Manage Roles** permission.',
             ephemeral: true,
         });
     }
 
-    let roleColor = undefined;
+    let roleColor;
 
     if (color) {
         if (!/^#?[0-9A-Fa-f]{6}$/.test(color)) {
@@ -80,7 +92,7 @@ async function createRole(interaction) {
     }
 
     try {
-        const role = await interaction.guild.roles.create({
+        const role = await guild.roles.create({
             name,
             color: roleColor,
             unicodeEmoji: emoji || undefined,
@@ -99,7 +111,9 @@ async function createRole(interaction) {
         console.error('MROLE ERROR:', error);
 
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ I could not create the role. Check my **Manage Roles** permission.',
+            content:
+                '❌ I could not create the role.\n' +
+                'Make sure my bot has **Manage Roles** permission.',
             ephemeral: true,
         });
     }
