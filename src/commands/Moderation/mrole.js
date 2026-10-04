@@ -48,17 +48,6 @@ async function createRole(interaction) {
         });
     }
 
-    const name = interaction.options.getString('name')?.trim();
-    const emoji = interaction.options.getString('emoji')?.trim();
-    const color = interaction.options.getString('color')?.trim();
-
-    if (!name) {
-        return InteractionHelper.universalReply(interaction, {
-            content: '❌ You need to provide a role name.',
-            ephemeral: true,
-        });
-    }
-
     const guild = interaction.guild;
 
     const botMember =
@@ -78,6 +67,29 @@ async function createRole(interaction) {
         });
     }
 
+    let name = interaction.options.getString('name')?.trim();
+    let emoji = interaction.options.getString('emoji')?.trim();
+    let color = interaction.options.getString('color')?.trim();
+
+    // Fix prefix commands:
+    // .mrole meow #ff5566
+    // The prefix parser may put #ff5566 into the emoji option.
+    if (
+        emoji &&
+        /^#?[0-9A-Fa-f]{6}$/.test(emoji) &&
+        !color
+    ) {
+        color = emoji;
+        emoji = null;
+    }
+
+    if (!name) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ You need to provide a role name.',
+            ephemeral: true,
+        });
+    }
+
     let roleColor;
 
     if (color) {
@@ -88,7 +100,9 @@ async function createRole(interaction) {
             });
         }
 
-        roleColor = color.startsWith('#') ? color : `#${color}`;
+        roleColor = color.startsWith('#')
+            ? color
+            : `#${color}`;
     }
 
     try {
@@ -112,8 +126,8 @@ async function createRole(interaction) {
 
         return InteractionHelper.universalReply(interaction, {
             content:
-                '❌ I could not create the role.\n' +
-                'Make sure my bot has **Manage Roles** permission.',
+                `❌ I could not create the role.\n` +
+                `\`\`\`${error.message}\`\`\``,
             ephemeral: true,
         });
     }
