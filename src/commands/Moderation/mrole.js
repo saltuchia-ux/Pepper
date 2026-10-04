@@ -1,73 +1,81 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('mrole')
-        .setDescription('Create a role')
-        .addStringOption(o =>
-            o.setName('name')
-                .setDescription('Role name')
+        .setDescription('Create a new role')
+        .addStringOption(option =>
+            option
+                .setName('name')
+                .setDescription('The name of the role')
                 .setRequired(true)
         )
-        .addStringOption(o =>
-            o.setName('color')
-                .setDescription('Color like #ff0000')
+        .addStringOption(option =>
+            option
+                .setName('color')
+                .setDescription('Role color, e.g. #ff0000')
                 .setRequired(true)
         )
-        .addStringOption(o =>
-            o.setName('emoji')
-                .setDescription('Optional emoji')
+        .addStringOption(option =>
+            option
+                .setName('emoji')
+                .setDescription('Role emoji (optional)')
                 .setRequired(false)
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
+
+    category: 'moderation',
 
     abuseProtection: {
-        enabled: false
+        enabled: false,
     },
 
-    async execute(interaction) {
+    async execute(interaction, config, client) {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ You need **Kick Members** permission.',
+                ephemeral: true,
+            });
+        }
+
         const name = interaction.options.getString('name');
         const color = interaction.options.getString('color');
         const emoji = interaction.options.getString('emoji');
 
+        if (!/^#?[0-9A-Fa-f]{6}$/.test(color)) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ Invalid color. Use a hex color like `#ff0000`.',
+                ephemeral: true,
+            });
+        }
+
+        const roleColor = color.startsWith('#') ? color : `#${color}`;
+
         try {
             const role = await interaction.guild.roles.create({
-                name: emoji ? `${emoji} ${name}` : name,
-                color: color
+                name,
+                color: roleColor,
+                reason: `Role created by ${interaction.user.tag}`,
             });
 
-            await interaction.reply(`✅ Created **${role.name}**`);
+            let message = `✅ Created role **${role.name}**`;
+
+            if (emoji) {
+                message += ` ${emoji}`;
+            }
+
+            return InteractionHelper.universalReply(interaction, {
+                content: message,
+            });
+
         } catch (error) {
             console.error('MROLE ERROR:', error);
-            await interaction.reply('❌ I could not create the role.');
+
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ I could not create the role. Make sure I have **Manage Roles** permission.',
+                ephemeral: true,
+            });
         }
     },
-
-    async prefixExecute(interaction) {
-        const values = interaction.options._hoistedOptions.map(x => String(x.value));
-
-        const name = values[0];
-        const color = values.find(x => /^#[0-9A-Fa-f]{6}$/.test(x));
-        const emoji = values.find(x => x !== name && x !== color);
-
-        if (!name) {
-            return interaction.reply('❌ Use: `.mrole RoleName #ff0000`');
-        }
-
-        if (!color) {
-            return interaction.reply('❌ Use a color like `#ff0000`.');
-        }
-
-        try {
-            const role = await interaction.guild.roles.create({
-                name: emoji ? `${emoji} ${name}` : name,
-                color: color
-            });
-
-            await interaction.reply(`✅ Created **${role.name}**`);
-        } catch (error) {
-            console.error('MROLE ERROR:', error);
-            await interaction.reply('❌ I could not create the role.');
-        }
-    }
 };
