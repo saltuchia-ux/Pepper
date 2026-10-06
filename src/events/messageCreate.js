@@ -1,4 +1,4 @@
-import { enforceAbuseProtection } from './abuseProtection.js';
+import { PermissionFlagsBits } from 'discord.js';
 
 const SLASH_ONLY_COMMANDS = new Set();
 
@@ -27,18 +27,20 @@ export function supportsPrefixExecution(command) {
 }
 
 /**
- * Execute a command from a prefix message.
+ * Execute a command using a prefix.
  */
 export async function executePrefixCommand(
     command,
     message,
-    args = [],
+    args,
     client,
     prefix,
     guildConfig
 ) {
     try {
-        if (!command) return;
+        if (!command) {
+            return;
+        }
 
         if (!supportsPrefixExecution(command)) {
             return;
@@ -47,63 +49,53 @@ export async function executePrefixCommand(
         const interaction = createMockInteraction(
             message,
             command.data,
-            args
+            args,
+            prefix
         );
 
-        interaction.client = client;
-        interaction.guild = message.guild;
-        interaction.channel = message.channel;
-        interaction.member = message.member;
-        interaction.user = message.author;
-        interaction.message = message;
-
-        interaction.guildId = message.guild?.id;
-        interaction.channelId = message.channel?.id;
-        interaction.commandName =
-            command.data?.name || '';
-
-        // Permission check
+        // Check command permissions
         const permissionResult =
-            await enforceDefaultCommandPermissions(
+            enforceDefaultCommandPermissions(
                 command,
                 interaction
             );
 
-        if (permissionResult === false) {
+        if (!permissionResult) {
             return;
         }
 
-        // Abuse protection / cooldown
-        const abuseResult =
-            await enforceAbuseProtection(
-                command,
-                interaction
-            );
-
-        if (abuseResult === false) {
-            return;
-        }
-
-        // Required option validation
+        // Check required arguments
         if (
             interaction.options &&
             typeof interaction.options.validateRequired === 'function'
         ) {
-            const validation =
+            const valid =
                 interaction.options.validateRequired();
 
-            if (!validation.valid) {
-                return interaction.reply({
+            if (!valid) {
+                const usage =
+                    buildUsage(
+                        prefix,
+                        command.data,
+                        args
+                    );
+
+                await interaction.reply({
                     content:
-                        validation.message ||
-                        `❌ Usage: \`${prefix}${command.data.name}\``,
+                        `❌ Missing required argument.\n` +
+                        `Usage: \`${usage}\``,
                     ephemeral: true
                 });
+
+                return;
             }
         }
 
-        // Use prefixExecute if the command has it
-        if (typeof command.prefixExecute === 'function') {
+        // Use prefixExecute when available
+        if (
+            typeof command.prefixExecute ===
+            'function'
+        ) {
             return await command.prefixExecute(
                 interaction,
                 guildConfig,
@@ -111,8 +103,11 @@ export async function executePrefixCommand(
             );
         }
 
-        // Otherwise use the normal execute function
-        if (typeof command.execute === 'function') {
+        // Otherwise use normal execute
+        if (
+            typeof command.execute ===
+            'function'
+        ) {
             return await command.execute(
                 interaction,
                 guildConfig,
@@ -122,44 +117,50 @@ export async function executePrefixCommand(
 
     } catch (error) {
         console.error(
-            `PREFIX EXECUTION ERROR [${command?.data?.name || 'unknown'}]:`,
+            'PREFIX COMMAND ERROR:',
             error
         );
 
         try {
-            await message.reply(
-                '❌ An error occurred while running that command.'
-            );
+            if (!interactionReplied(message)) {
+                await message.reply(
+                    `❌ An error occurred while running that command.`
+                );
+            }
         } catch {}
     }
 }
 
 /**
- * Create a mock interaction for prefix commands.
+ * Create a fake interaction so existing
+ * slash-command code can also work with prefixes.
  */
 function createMockInteraction(
     message,
     commandData,
-    args
+    args,
+    prefix
 ) {
-    const data =
-        commandData?.toJSON
-            ? commandData.toJSON()
-            : commandData || {};
-
     const mappedOptions =
         mapArgumentsToOptions(
             args,
-            data
+            commandData
         );
 
+    let replied = false;
+    let deferred = false;
+
     const interaction = {
-        id: message.id,
+        id: `prefix-${Date.now()}`,
+
+        applicationId:
+            message.client?.application?.id ||
+            null,
 
         type: 2,
 
         commandName:
-            data.name || '',
+            commandData?.name || null,
 
         user: message.author,
 
@@ -177,222 +178,12 @@ function createMockInteraction(
 
         message,
 
+        createdTimestamp:
+            Date.now(),
+
         replied: false,
 
         deferred: false,
-
-        options: {
-            _hoistedOptions: mappedOptions,
-
-            getString(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                return String(option.value);
-            },
-
-            getInteger(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                const value =
-                    Number(option.value);
-
-                return Number.isNaN(value)
-                    ? null
-                    : value;
-            },
-
-            getNumber(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                const value =
-                    Number(option.value);
-
-                return Number.isNaN(value)
-                    ? null
-                    : value;
-            },
-
-            getBoolean(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                return (
-                    option.value === true ||
-                    option.value === 'true'
-                );
-            },
-
-            getUser(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                const id =
-                    extractUserId(option.value);
-
-                if (!id) return null;
-
-                const member =
-                    message.guild.members.cache.get(id);
-
-                return member?.user || null;
-            },
-
-            getMember(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                const id =
-                    extractUserId(option.value);
-
-                if (!id) return null;
-
-                return (
-                    message.guild.members.cache.get(id) ||
-                    null
-                );
-            },
-
-            getRole(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                const id =
-                    extractRoleId(option.value);
-
-                if (!id) return null;
-
-                return (
-                    message.guild.roles.cache.get(id) ||
-                    null
-                );
-            },
-
-            getChannel(name) {
-                const option =
-                    mappedOptions.find(
-                        option => option.name === name
-                    );
-
-                if (!option) return null;
-
-                const id =
-                    extractChannelId(option.value);
-
-                if (!id) return null;
-
-                return (
-                    message.guild.channels.cache.get(id) ||
-                    null
-                );
-            },
-
-            getSubcommand() {
-                return null;
-            },
-
-            getSubcommandGroup() {
-                return null;
-            },
-
-            validateRequired() {
-                const options =
-                    data.options || [];
-
-                for (const option of options) {
-                    // Subcommands are handled by the command itself.
-                    if (
-                        option.type === 1 ||
-                        option.type === 2
-                    ) {
-                        continue;
-                    }
-
-                    if (!option.required) {
-                        continue;
-                    }
-
-                    const supplied =
-                        mappedOptions.find(
-                            item =>
-                                item.name === option.name
-                        );
-
-                    if (
-                        !supplied ||
-                        supplied.value === undefined ||
-                        supplied.value === null ||
-                        String(supplied.value).trim() === ''
-                    ) {
-                        return {
-                            valid: false,
-                            message:
-                                `❌ Missing required option: **${option.name}**`
-                        };
-                    }
-                }
-
-                return {
-                    valid: true
-                };
-            }
-        },
-
-        reply: async function(content) {
-            this.replied = true;
-
-            if (typeof content === 'string') {
-                return message.reply(content);
-            }
-
-            return message.reply(content);
-        },
-
-        followUp: async function(content) {
-            return message.channel.send(content);
-        },
-
-        editReply: async function(content) {
-            return message.channel.send(content);
-        },
-
-        deferReply: async function() {
-            this.deferred = true;
-        },
-
-        deleteReply: async function() {
-            return;
-        },
 
         isChatInputCommand() {
             return true;
@@ -400,28 +191,129 @@ function createMockInteraction(
 
         isCommand() {
             return true;
-        }
+        },
+
+        isButton() {
+            return false;
+        },
+
+        isStringSelectMenu() {
+            return false;
+        },
+
+        isModalSubmit() {
+            return false;
+        },
+
+        options: createOptionsResolver(
+            mappedOptions,
+            commandData
+        ),
+
+        async reply(payload) {
+            if (
+                typeof payload ===
+                'string'
+            ) {
+                payload = {
+                    content: payload
+                };
+            }
+
+            replied = true;
+            this.replied = true;
+
+            return await message.reply(
+                payload
+            );
+        },
+
+        async followUp(payload) {
+            if (
+                typeof payload ===
+                'string'
+            ) {
+                payload = {
+                    content: payload
+                };
+            }
+
+            return await message.channel.send(
+                payload
+            );
+        },
+
+        async editReply(payload) {
+            if (
+                typeof payload ===
+                'string'
+            ) {
+                payload = {
+                    content: payload
+                };
+            }
+
+            if (this._replyMessage) {
+                return await this._replyMessage.edit(
+                    payload
+                );
+            }
+
+            return await message.reply(
+                payload
+            );
+        },
+
+        async deleteReply() {
+            if (this._replyMessage) {
+                await this._replyMessage
+                    .delete()
+                    .catch(() => {});
+            }
+        },
+
+        async deferReply() {
+            deferred = true;
+            this.deferred = true;
+        },
+
+        async showModal() {
+            throw new Error(
+                'Modals are not supported for prefix commands.'
+            );
+        },
+
+        async respond(payload) {
+            return this.reply(payload);
+        },
+
+        prefix,
+
+        repliedMessage: null,
+
+        _replyMessage: null
     };
 
     return interaction;
 }
 
 /**
- * Convert prefix arguments into command options.
+ * Convert prefix arguments into slash-command-like options.
  */
 function mapArgumentsToOptions(
     args,
     commandData
 ) {
-    const options =
+    const options = [];
+
+    const commandOptions =
         commandData?.options || [];
 
-    const results = [];
+    let argumentIndex = 0;
 
-    let argIndex = 0;
+    for (const option of commandOptions) {
 
-    for (const option of options) {
-        // Ignore subcommands and subcommand groups.
+        // Subcommands are handled separately
         if (
             option.type === 1 ||
             option.type === 2
@@ -429,100 +321,468 @@ function mapArgumentsToOptions(
             continue;
         }
 
-        if (argIndex >= args.length) {
+        if (
+            argumentIndex >=
+            args.length
+        ) {
             break;
         }
 
-        results.push({
+        options.push({
             name: option.name,
-            value: args[argIndex],
-            type: option.type
+
+            description:
+                option.description || '',
+
+            type: option.type,
+
+            value:
+                args[argumentIndex],
+
+            optionData: option
         });
 
-        argIndex++;
+        argumentIndex++;
     }
 
-    // Keep any remaining arguments.
-    while (argIndex < args.length) {
-        results.push({
-            name: `arg${argIndex}`,
-            value: args[argIndex],
-            type: 3
+    // Keep extra arguments
+    while (
+        argumentIndex <
+        args.length
+    ) {
+        options.push({
+            name:
+                `arg${argumentIndex}`,
+
+            description: '',
+
+            type: 3,
+
+            value:
+                args[argumentIndex],
+
+            optionData: {
+                type: 3
+            }
         });
 
-        argIndex++;
+        argumentIndex++;
     }
 
-    return results;
+    return options;
 }
 
 /**
- * Check command permissions.
+ * Create a Discord-style option resolver.
  */
-async function enforceDefaultCommandPermissions(
+function createOptionsResolver(
+    options,
+    commandData
+) {
+    function getOption(
+        name
+    ) {
+        return options.find(
+            option =>
+                option.name === name
+        );
+    }
+
+    function getValue(
+        name
+    ) {
+        return getOption(name)?.value;
+    }
+
+    const resolver = {
+
+        _hoistedOptions:
+            options,
+
+        data: options,
+
+        get(name) {
+            return getOption(name);
+        },
+
+        getString(
+            name,
+            required = false
+        ) {
+            const value =
+                getValue(name);
+
+            if (
+                value === undefined ||
+                value === null
+            ) {
+                if (required) {
+                    return null;
+                }
+
+                return null;
+            }
+
+            return String(value);
+        },
+
+        getInteger(
+            name,
+            required = false
+        ) {
+            const value =
+                getValue(name);
+
+            if (
+                value === undefined ||
+                value === null
+            ) {
+                return null;
+            }
+
+            const number =
+                Number(value);
+
+            return Number.isInteger(
+                number
+            )
+                ? number
+                : null;
+        },
+
+        getNumber(
+            name,
+            required = false
+        ) {
+            const value =
+                getValue(name);
+
+            if (
+                value === undefined ||
+                value === null
+            ) {
+                return null;
+            }
+
+            const number =
+                Number(value);
+
+            return Number.isNaN(number)
+                ? null
+                : number;
+        },
+
+        getBoolean(
+            name,
+            required = false
+        ) {
+            const value =
+                getValue(name);
+
+            if (
+                value === undefined ||
+                value === null
+            ) {
+                return null;
+            }
+
+            if (
+                String(value).toLowerCase() ===
+                'true'
+            ) {
+                return true;
+            }
+
+            if (
+                String(value).toLowerCase() ===
+                'false'
+            ) {
+                return false;
+            }
+
+            return null;
+        },
+
+        getUser(
+            name,
+            required = false
+        ) {
+            const id =
+                extractUserId(
+                    getValue(name)
+                );
+
+            if (!id) {
+                return null;
+            }
+
+            return (
+                messageMemberFetch(
+                    this._interaction,
+                    id
+                )
+            );
+        },
+
+        getMember(
+            name,
+            required = false
+        ) {
+            const value =
+                getValue(name);
+
+            const id =
+                extractUserId(value);
+
+            if (!id) {
+                return null;
+            }
+
+            return (
+                this._interaction
+                    ?.guild
+                    ?.members
+                    ?.cache
+                    ?.get(id) || null
+            );
+        },
+
+        getRole(
+            name,
+            required = false
+        ) {
+            const id =
+                extractRoleId(
+                    getValue(name)
+                );
+
+            if (!id) {
+                return null;
+            }
+
+            return (
+                this._interaction
+                    ?.guild
+                    ?.roles
+                    ?.cache
+                    ?.get(id) || null
+            );
+        },
+
+        getChannel(
+            name,
+            required = false
+        ) {
+            const id =
+                extractChannelId(
+                    getValue(name)
+                );
+
+            if (!id) {
+                return null;
+            }
+
+            return (
+                this._interaction
+                    ?.guild
+                    ?.channels
+                    ?.cache
+                    ?.get(id) || null
+            );
+        },
+
+        getSubcommand(
+            required = false
+        ) {
+            const option =
+                commandData?.options?.find(
+                    option =>
+                        option.type === 1
+                );
+
+            return option?.name ||
+                null;
+        },
+
+        getSubcommandGroup(
+            required = false
+        ) {
+            const option =
+                commandData?.options?.find(
+                    option =>
+                        option.type === 2
+                );
+
+            return option?.name ||
+                null;
+        },
+
+        validateRequired() {
+            const requiredOptions =
+                (
+                    commandData?.options ||
+                    []
+                ).filter(
+                    option =>
+                        option.required === true &&
+                        option.type !== 1 &&
+                        option.type !== 2
+                );
+
+            for (
+                const option
+                of requiredOptions
+            ) {
+                const supplied =
+                    getValue(
+                        option.name
+                    );
+
+                if (
+                    supplied ===
+                    undefined ||
+                    supplied ===
+                    null ||
+                    String(
+                        supplied
+                    ).trim() === ''
+                ) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    };
+
+    return resolver;
+}
+
+/**
+ * Check Discord default member permissions.
+ */
+function enforceDefaultCommandPermissions(
     command,
     interaction
 ) {
-    try {
-        const permissions =
-            command.data?.default_member_permissions;
+    const permissionValue =
+        command?.data
+            ?.default_member_permissions;
 
-        if (!permissions) {
-            return true;
-        }
-
-        const required =
-            BigInt(permissions);
-
-        const memberPermissions =
-            interaction.member?.permissions?.bitfield;
-
-        if (memberPermissions === undefined) {
-            return true;
-        }
-
-        const current =
-            BigInt(memberPermissions);
-
-        if (
-            (current & required) !== required
-        ) {
-            await interaction.reply(
-                '❌ You do not have permission to use this command.'
-            );
-
-            return false;
-        }
-
-        return true;
-
-    } catch (error) {
-        console.error(
-            'PERMISSION CHECK ERROR:',
-            error
-        );
-
+    if (
+        !permissionValue
+    ) {
         return true;
     }
+
+    const requiredPermissions =
+        BigInt(
+            permissionValue
+        );
+
+    const memberPermissions =
+        interaction.member
+            ?.permissions;
+
+    if (
+        !memberPermissions
+    ) {
+        return false;
+    }
+
+    const userPermissions =
+        memberPermissions.bitfield;
+
+    if (
+        (userPermissions &
+            requiredPermissions) !==
+        requiredPermissions
+    ) {
+        interaction.reply({
+            content:
+                '❌ You do not have permission to use this command.',
+            ephemeral: true
+        }).catch(() => {});
+
+        return false;
+    }
+
+    return true;
 }
 
 /**
- * Extract a user ID.
+ * Build command usage.
  */
-function extractUserId(value) {
-    if (!value) return null;
+function buildUsage(
+    prefix,
+    commandData,
+    args
+) {
+    const name =
+        commandData?.name ||
+        'command';
+
+    const options =
+        commandData?.options || [];
+
+    const usageParts = [
+        `${prefix}${name}`
+    ];
+
+    for (
+        const option
+        of options
+    ) {
+        if (
+            option.type === 1 ||
+            option.type === 2
+        ) {
+            continue;
+        }
+
+        if (option.required) {
+            usageParts.push(
+                `<${option.name}>`
+            );
+        } else {
+            usageParts.push(
+                `[${option.name}]`
+            );
+        }
+    }
+
+    return usageParts.join(' ');
+}
+
+/**
+ * Extract a user ID from:
+ * @User
+ * <@UserID>
+ * <@!UserID>
+ * UserID
+ */
+function extractUserId(
+    value
+) {
+    if (!value) {
+        return null;
+    }
 
     const text =
         String(value).trim();
 
     const mention =
-        text.match(/^<@!?(\d+)>$/);
+        text.match(
+            /^<@!?(\d+)>$/
+        );
 
     if (mention) {
         return mention[1];
     }
 
-    if (/^\d+$/.test(text)) {
+    if (
+        /^\d+$/.test(text)
+    ) {
         return text;
     }
 
@@ -530,22 +790,33 @@ function extractUserId(value) {
 }
 
 /**
- * Extract a role ID.
+ * Extract a role ID from:
+ * @Role
+ * <@&RoleID>
+ * RoleID
  */
-function extractRoleId(value) {
-    if (!value) return null;
+function extractRoleId(
+    value
+) {
+    if (!value) {
+        return null;
+    }
 
     const text =
         String(value).trim();
 
     const mention =
-        text.match(/^<@&(\d+)>$/);
+        text.match(
+            /^<@&(\d+)>$/
+        );
 
     if (mention) {
         return mention[1];
     }
 
-    if (/^\d+$/.test(text)) {
+    if (
+        /^\d+$/.test(text)
+    ) {
         return text;
     }
 
@@ -555,22 +826,70 @@ function extractRoleId(value) {
 /**
  * Extract a channel ID.
  */
-function extractChannelId(value) {
-    if (!value) return null;
+function extractChannelId(
+    value
+) {
+    if (!value) {
+        return null;
+    }
 
     const text =
         String(value).trim();
 
     const mention =
-        text.match(/^<#(\d+)>$/);
+        text.match(
+            /^<#(\d+)>$/
+        );
 
     if (mention) {
         return mention[1];
     }
 
-    if (/^\d+$/.test(text)) {
+    if (
+        /^\d+$/.test(text)
+    ) {
         return text;
     }
 
     return null;
+}
+
+async function messageMemberFetch(
+    interaction,
+    id
+) {
+    if (
+        !interaction?.guild
+    ) {
+        return null;
+    }
+
+    return await interaction.guild
+        .members
+        .fetch(id)
+        .catch(() => null);
+}
+
+function interactionReplied(
+    message
+) {
+    return false;
+}
+
+/**
+ * Compatibility export.
+ */
+export function resolvePrefixAccessKey(
+    command
+) {
+    if (!command) {
+        return null;
+    }
+
+    return (
+        command.prefixAccessKey ||
+        command.accessKey ||
+        command.data?.name ||
+        null
+    );
 }
