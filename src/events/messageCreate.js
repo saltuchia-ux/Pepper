@@ -1,424 +1,576 @@
-import { Events, PermissionFlagsBits } from 'discord.js';
-import { logger } from '../utils/logger.js';
-import {
-    getLevelingConfig,
-    getUserLevelData
-} from '../services/leveling/leveling.js';
-import { addXp } from '../services/leveling/xpSystem.js';
-import { checkRateLimit } from '../utils/rateLimiter.js';
-import { executePrefixCommand } from '../utils/messageAdapter.js';
-import { getGuildConfig } from '../services/config/guildConfig.js';
-import { getCommandPrefix } from '../config/bot.js';
+import { enforceAbuseProtection } from './abuseProtection.js';
 
-import {
-    getCountingGameConfig,
-    saveCountingGameConfig,
-    isValidCountingMessage,
-    recordCorrectCount,
-} from '../services/countingGameService.js';
+const SLASH_ONLY_COMMANDS = new Set();
 
-const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
-const MESSAGE_XP_RATE_LIMIT_WINDOW_MS = 10000;
+/**
+ * Check whether a command can be used with a prefix.
+ */
+export function supportsPrefixExecution(command) {
+    if (!command) return false;
 
-const LEVEL_10_ROLE_ID = '1555604759287832677';
-const MEDIA_ROLE_ID = '1556313427079729182';
-
-export default {
-    name: Events.MessageCreate,
-
-    async execute(message, client) {
-        try {
-            if (message.author.bot || !message.guild) return;
-
-            logger.debug(
-                `Message received from ${message.author.tag}: ${message.content}`
-            );
-
-            const countingProcessed = await handleCountingGame(message, client);
-
-            if (countingProcessed) {
-                return;
-            }
-
-            await handlePrefixCommand(message, client);
-
-            await handleLeveling(message, client);
-
-        } catch (error) {
-            logger.error('Error in messageCreate event:', error);
-        }
+    if (command.prefixOnly === false) {
+        return false;
     }
-};
 
-async function handlePrefixCommand(message, client) {
+    if (command.slashOnly === true) {
+        return false;
+    }
+
+    if (SLASH_ONLY_COMMANDS.has(command.data?.name)) {
+        return false;
+    }
+
+    return Boolean(
+        command.prefixExecute ||
+        command.execute
+    );
+}
+
+/**
+ * Execute a command from a prefix message.
+ */
+export async function executePrefixCommand(
+    command,
+    message,
+    args = [],
+    client,
+    prefix,
+    guildConfig
+) {
     try {
-        const guildConfig =
-            await getGuildConfig(client, message.guild.id);
+        if (!command) return;
 
-        const prefix =
-            guildConfig?.prefix || getCommandPrefix();
-
-        if (!message.content.startsWith(prefix)) {
+        if (!supportsPrefixExecution(command)) {
             return;
         }
 
-        const parts = message.content
-            .slice(prefix.length)
-            .trim()
-            .split(/\s+/);
-
-        const commandName =
-            parts.shift()?.toLowerCase();
-
-        if (!commandName) {
-            return;
-        }
-
-        const command =
-            client.commands.get(commandName);
-
-        if (!command) {
-            return;
-        }
-
-        await executePrefixCommand(
-            command,
+        const interaction = createMockInteraction(
             message,
-            parts,
-            client,
-            prefix,
-            guildConfig
+            command.data,
+            args
         );
 
+        interaction.client = client;
+        interaction.guild = message.guild;
+        interaction.channel = message.channel;
+        interaction.member = message.member;
+        interaction.user = message.author;
+        interaction.message = message;
+
+        interaction.guildId = message.guild?.id;
+        interaction.channelId = message.channel?.id;
+        interaction.commandName =
+            command.data?.name || '';
+
+        // Permission check
+        const permissionResult =
+            await enforceDefaultCommandPermissions(
+                command,
+                interaction
+            );
+
+        if (permissionResult === false) {
+            return;
+        }
+
+        // Abuse protection / cooldown
+        const abuseResult =
+            await enforceAbuseProtection(
+                command,
+                interaction
+            );
+
+        if (abuseResult === false) {
+            return;
+        }
+
+        // Required option validation
+        if (
+            interaction.options &&
+            typeof interaction.options.validateRequired === 'function'
+        ) {
+            const validation =
+                interaction.options.validateRequired();
+
+            if (!validation.valid) {
+                return interaction.reply({
+                    content:
+                        validation.message ||
+                        `❌ Usage: \`${prefix}${command.data.name}\``,
+                    ephemeral: true
+                });
+            }
+        }
+
+        // Use prefixExecute if the command has it
+        if (typeof command.prefixExecute === 'function') {
+            return await command.prefixExecute(
+                interaction,
+                guildConfig,
+                client
+            );
+        }
+
+        // Otherwise use the normal execute function
+        if (typeof command.execute === 'function') {
+            return await command.execute(
+                interaction,
+                guildConfig,
+                client
+            );
+        }
+
     } catch (error) {
-        logger.error('PREFIX COMMAND ERROR:', error);
+        console.error(
+            `PREFIX EXECUTION ERROR [${command?.data?.name || 'unknown'}]:`,
+            error
+        );
+
+        try {
+            await message.reply(
+                '❌ An error occurred while running that command.'
+            );
+        } catch {}
     }
 }
 
-async function handleCountingGame(message, client) {
-    try {
-        const config =
-            await getCountingGameConfig(
-                client,
-                message.guild.id
-            );
+/**
+ * Create a mock interaction for prefix commands.
+ */
+function createMockInteraction(
+    message,
+    commandData,
+    args
+) {
+    const data =
+        commandData?.toJSON
+            ? commandData.toJSON()
+            : commandData || {};
 
+    const mappedOptions =
+        mapArgumentsToOptions(
+            args,
+            data
+        );
+
+    const interaction = {
+        id: message.id,
+
+        type: 2,
+
+        commandName:
+            data.name || '',
+
+        user: message.author,
+
+        member: message.member,
+
+        guild: message.guild,
+
+        guildId: message.guild?.id,
+
+        channel: message.channel,
+
+        channelId: message.channel?.id,
+
+        client: message.client,
+
+        message,
+
+        replied: false,
+
+        deferred: false,
+
+        options: {
+            _hoistedOptions: mappedOptions,
+
+            getString(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                return String(option.value);
+            },
+
+            getInteger(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                const value =
+                    Number(option.value);
+
+                return Number.isNaN(value)
+                    ? null
+                    : value;
+            },
+
+            getNumber(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                const value =
+                    Number(option.value);
+
+                return Number.isNaN(value)
+                    ? null
+                    : value;
+            },
+
+            getBoolean(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                return (
+                    option.value === true ||
+                    option.value === 'true'
+                );
+            },
+
+            getUser(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                const id =
+                    extractUserId(option.value);
+
+                if (!id) return null;
+
+                const member =
+                    message.guild.members.cache.get(id);
+
+                return member?.user || null;
+            },
+
+            getMember(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                const id =
+                    extractUserId(option.value);
+
+                if (!id) return null;
+
+                return (
+                    message.guild.members.cache.get(id) ||
+                    null
+                );
+            },
+
+            getRole(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                const id =
+                    extractRoleId(option.value);
+
+                if (!id) return null;
+
+                return (
+                    message.guild.roles.cache.get(id) ||
+                    null
+                );
+            },
+
+            getChannel(name) {
+                const option =
+                    mappedOptions.find(
+                        option => option.name === name
+                    );
+
+                if (!option) return null;
+
+                const id =
+                    extractChannelId(option.value);
+
+                if (!id) return null;
+
+                return (
+                    message.guild.channels.cache.get(id) ||
+                    null
+                );
+            },
+
+            getSubcommand() {
+                return null;
+            },
+
+            getSubcommandGroup() {
+                return null;
+            },
+
+            validateRequired() {
+                const options =
+                    data.options || [];
+
+                for (const option of options) {
+                    // Subcommands are handled by the command itself.
+                    if (
+                        option.type === 1 ||
+                        option.type === 2
+                    ) {
+                        continue;
+                    }
+
+                    if (!option.required) {
+                        continue;
+                    }
+
+                    const supplied =
+                        mappedOptions.find(
+                            item =>
+                                item.name === option.name
+                        );
+
+                    if (
+                        !supplied ||
+                        supplied.value === undefined ||
+                        supplied.value === null ||
+                        String(supplied.value).trim() === ''
+                    ) {
+                        return {
+                            valid: false,
+                            message:
+                                `❌ Missing required option: **${option.name}**`
+                        };
+                    }
+                }
+
+                return {
+                    valid: true
+                };
+            }
+        },
+
+        reply: async function(content) {
+            this.replied = true;
+
+            if (typeof content === 'string') {
+                return message.reply(content);
+            }
+
+            return message.reply(content);
+        },
+
+        followUp: async function(content) {
+            return message.channel.send(content);
+        },
+
+        editReply: async function(content) {
+            return message.channel.send(content);
+        },
+
+        deferReply: async function() {
+            this.deferred = true;
+        },
+
+        deleteReply: async function() {
+            return;
+        },
+
+        isChatInputCommand() {
+            return true;
+        },
+
+        isCommand() {
+            return true;
+        }
+    };
+
+    return interaction;
+}
+
+/**
+ * Convert prefix arguments into command options.
+ */
+function mapArgumentsToOptions(
+    args,
+    commandData
+) {
+    const options =
+        commandData?.options || [];
+
+    const results = [];
+
+    let argIndex = 0;
+
+    for (const option of options) {
+        // Ignore subcommands and subcommand groups.
         if (
-            !config?.enabled ||
-            !config.channelId ||
-            message.channel.id !== config.channelId
+            option.type === 1 ||
+            option.type === 2
         ) {
-            return false;
+            continue;
         }
 
-        const content = message.content.trim();
+        if (argIndex >= args.length) {
+            break;
+        }
 
-        const validCount =
-            isValidCountingMessage(content, config);
+        results.push({
+            name: option.name,
+            value: args[argIndex],
+            type: option.type
+        });
 
-        const invalidAttempt =
-            !validCount ||
-            message.author.id === config.lastUserId;
+        argIndex++;
+    }
 
-        if (invalidAttempt) {
-            await message.delete().catch(() => {});
+    // Keep any remaining arguments.
+    while (argIndex < args.length) {
+        results.push({
+            name: `arg${argIndex}`,
+            value: args[argIndex],
+            type: 3
+        });
 
-            await saveCountingGameConfig(
-                client,
-                message.guild.id,
-                {
-                    ...config,
-                    nextNumber: 1,
-                    lastUserId: null,
-                    currentStreak: 0,
-                }
-            );
+        argIndex++;
+    }
 
-            const failureMessage =
-                await message.channel.send(
-                    `❌ Count broken by <@${message.author.id}>. The sequence has been reset to **1**.`
-                );
+    return results;
+}
 
-            setTimeout(() => {
-                failureMessage.delete().catch(() => {});
-            }, 10000);
+/**
+ * Check command permissions.
+ */
+async function enforceDefaultCommandPermissions(
+    command,
+    interaction
+) {
+    try {
+        const permissions =
+            command.data?.default_member_permissions;
 
+        if (!permissions) {
             return true;
         }
 
-        await recordCorrectCount(
-            client,
-            message.guild.id,
-            message.author.id
-        );
+        const required =
+            BigInt(permissions);
+
+        const memberPermissions =
+            interaction.member?.permissions?.bitfield;
+
+        if (memberPermissions === undefined) {
+            return true;
+        }
+
+        const current =
+            BigInt(memberPermissions);
+
+        if (
+            (current & required) !== required
+        ) {
+            await interaction.reply(
+                '❌ You do not have permission to use this command.'
+            );
+
+            return false;
+        }
 
         return true;
 
     } catch (error) {
-        logger.error(
-            'Error handling counting game:',
+        console.error(
+            'PERMISSION CHECK ERROR:',
             error
         );
 
-        return false;
+        return true;
     }
 }
 
-async function handleLeveling(message, client) {
-    try {
-        const rateLimitKey =
-            `xp-event:${message.guild.id}:${message.author.id}`;
+/**
+ * Extract a user ID.
+ */
+function extractUserId(value) {
+    if (!value) return null;
 
-        const canProcess =
-            await checkRateLimit(
-                rateLimitKey,
-                MESSAGE_XP_RATE_LIMIT_ATTEMPTS,
-                MESSAGE_XP_RATE_LIMIT_WINDOW_MS
-            );
+    const text =
+        String(value).trim();
 
-        if (!canProcess) {
-            return;
-        }
+    const mention =
+        text.match(/^<@!?(\d+)>$/);
 
-        const levelingConfig =
-            await getLevelingConfig(
-                client,
-                message.guild.id
-            );
-
-        if (!levelingConfig?.enabled) {
-            return;
-        }
-
-        if (
-            levelingConfig.ignoredChannels?.includes(
-                message.channel.id
-            )
-        ) {
-            return;
-        }
-
-        if (
-            levelingConfig.ignoredRoles?.length > 0
-        ) {
-            const member =
-                await message.guild.members
-                    .fetch(message.author.id)
-                    .catch(() => null);
-
-            if (
-                member &&
-                member.roles.cache.some(role =>
-                    levelingConfig.ignoredRoles.includes(
-                        role.id
-                    )
-                )
-            ) {
-                return;
-            }
-        }
-
-        if (
-            levelingConfig.blacklistedUsers?.includes(
-                message.author.id
-            )
-        ) {
-            return;
-        }
-
-        if (
-            !message.content ||
-            message.content.trim().length === 0
-        ) {
-            return;
-        }
-
-        const userData =
-            await getUserLevelData(
-                client,
-                message.guild.id,
-                message.author.id
-            );
-
-        const cooldownTime =
-            levelingConfig.xpCooldown || 60;
-
-        const now = Date.now();
-
-        const timeSinceLastMessage =
-            now -
-            (userData.lastMessage || 0);
-
-        if (
-            timeSinceLastMessage <
-            cooldownTime * 1000
-        ) {
-            return;
-        }
-
-        const minXP =
-            levelingConfig.xpRange?.min ||
-            levelingConfig.xpPerMessage?.min ||
-            15;
-
-        const maxXP =
-            levelingConfig.xpRange?.max ||
-            levelingConfig.xpPerMessage?.max ||
-            25;
-
-        const safeMinXP =
-            Math.max(1, minXP);
-
-        const safeMaxXP =
-            Math.max(
-                safeMinXP,
-                maxXP
-            );
-
-        const xpToGive =
-            Math.floor(
-                Math.random() *
-                (
-                    safeMaxXP -
-                    safeMinXP +
-                    1
-                )
-            ) +
-            safeMinXP;
-
-        let finalXP = xpToGive;
-
-        if (
-            levelingConfig.xpMultiplier &&
-            levelingConfig.xpMultiplier > 1
-        ) {
-            finalXP =
-                Math.floor(
-                    finalXP *
-                    levelingConfig.xpMultiplier
-                );
-        }
-
-        const result =
-            await addXp(
-                client,
-                message.guild,
-                message.member,
-                finalXP
-            );
-
-        if (result?.leveledUp) {
-            logger.info(
-                `${message.author.tag} leveled up to level ${result.level} in ${message.guild.name}`
-            );
-        }
-
-        if (result?.level >= 10) {
-            await giveMediaRole(
-                message,
-                result.level
-            );
-        }
-
-    } catch (error) {
-        logger.error(
-            'Error handling leveling for message:',
-            error
-        );
+    if (mention) {
+        return mention[1];
     }
+
+    if (/^\d+$/.test(text)) {
+        return text;
+    }
+
+    return null;
 }
 
-async function giveMediaRole(message, level) {
-    try {
-        const guild = message.guild;
-        const member = message.member;
+/**
+ * Extract a role ID.
+ */
+function extractRoleId(value) {
+    if (!value) return null;
 
-        if (!guild || !member) {
-            return;
-        }
+    const text =
+        String(value).trim();
 
-        const mediaRole =
-            guild.roles.cache.get(
-                MEDIA_ROLE_ID
-            ) ||
-            await guild.roles
-                .fetch(MEDIA_ROLE_ID)
-                .catch(() => null);
+    const mention =
+        text.match(/^<@&(\d+)>$/);
 
-        if (!mediaRole) {
-            logger.error(
-                `MEDIA ROLE ERROR: Role ${MEDIA_ROLE_ID} was not found in ${guild.name}`
-            );
-
-            return;
-        }
-
-        const botMember =
-            guild.members.me ||
-            await guild.members
-                .fetchMe()
-                .catch(() => null);
-
-        if (!botMember) {
-            logger.error(
-                'MEDIA ROLE ERROR: Could not find bot member.'
-            );
-
-            return;
-        }
-
-        if (
-            !botMember.permissions.has(
-                PermissionFlagsBits.ManageRoles
-            )
-        ) {
-            logger.error(
-                'MEDIA ROLE ERROR: Bot does not have Manage Roles permission.'
-            );
-
-            return;
-        }
-
-        if (mediaRole.managed) {
-            logger.error(
-                `MEDIA ROLE ERROR: ${mediaRole.name} is a managed role.`
-            );
-
-            return;
-        }
-
-        if (
-            botMember.roles.highest.position <=
-            mediaRole.position
-        ) {
-            logger.error(
-                `MEDIA ROLE ERROR: Bot role is not above ${mediaRole.name}.`
-            );
-
-            return;
-        }
-
-        if (
-            member.roles.cache.has(
-                MEDIA_ROLE_ID
-            )
-        ) {
-            return;
-        }
-
-        await member.roles.add(
-            mediaRole,
-            `Automatically awarded for reaching Level ${level}`
-        );
-
-        logger.info(
-            `🎬 MEDIA ROLE: ${member.user.tag} received the Media role for reaching Level ${level} in ${guild.name}`
-        );
-
-    } catch (error) {
-        logger.error(
-            `MEDIA ROLE ERROR for ${message.author.tag}:`,
-            error
-        );
+    if (mention) {
+        return mention[1];
     }
+
+    if (/^\d+$/.test(text)) {
+        return text;
+    }
+
+    return null;
+}
+
+/**
+ * Extract a channel ID.
+ */
+function extractChannelId(value) {
+    if (!value) return null;
+
+    const text =
+        String(value).trim();
+
+    const mention =
+        text.match(/^<#(\d+)>$/);
+
+    if (mention) {
+        return mention[1];
+    }
+
+    if (/^\d+$/.test(text)) {
+        return text;
+    }
+
+    return null;
 }
