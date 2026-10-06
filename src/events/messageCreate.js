@@ -1,895 +1,367 @@
-import { PermissionFlagsBits } from 'discord.js';
+import { Events } from 'discord.js';
+import { logger } from '../utils/logger.js';
+import { getLevelingConfig, getUserLevelData } from '../services/leveling/leveling.js';
+import { addXp } from '../services/leveling/xpSystem.js';
+import { checkRateLimit } from '../utils/rateLimiter.js';
+import { executePrefixCommand } from '../utils/messageAdapter.js';
+import { getGuildConfig } from '../services/config/guildConfig.js';
 
-const SLASH_ONLY_COMMANDS = new Set();
+import {
+  getCountingGameConfig,
+  saveCountingGameConfig,
+  isValidCountingMessage,
+  recordCorrectCount,
+} from '../services/countingGameService.js';
 
-/**
- * Check whether a command can be used with a prefix.
- */
-export function supportsPrefixExecution(command) {
-    if (!command) return false;
+const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
+const MESSAGE_XP_RATE_LIMIT_WINDOW_MS = 10000;
 
-    if (command.prefixOnly === false) {
-        return false;
-    }
+export default {
+  name: Events.MessageCreate,
 
-    if (command.slashOnly === true) {
-        return false;
-    }
-
-    if (SLASH_ONLY_COMMANDS.has(command.data?.name)) {
-        return false;
-    }
-
-    return Boolean(
-        command.prefixExecute ||
-        command.execute
-    );
-}
-
-/**
- * Execute a command using a prefix.
- */
-export async function executePrefixCommand(
-    command,
-    message,
-    args,
-    client,
-    prefix,
-    guildConfig
-) {
+  async execute(message, client) {
     try {
-        if (!command) {
-            return;
+      if (message.author.bot || !message.guild) return;
+
+      // NUCK COMMAND
+      if (message.content.trim().toLowerCase() === '.nuck') {
+        if (!message.member.permissions.has('Administrator')) {
+          return;
         }
 
-        if (!supportsPrefixExecution(command)) {
-            return;
+        if (!message.guild.members.me.permissions.has('ManageMessages')) {
+          return message.reply('❌ I need Manage Messages permission.');
         }
-
-        const interaction = createMockInteraction(
-            message,
-            command.data,
-            args,
-            prefix
-        );
-
-        // Check command permissions
-        const permissionResult =
-            enforceDefaultCommandPermissions(
-                command,
-                interaction
-            );
-
-        if (!permissionResult) {
-            return;
-        }
-
-        // Check required arguments
-        if (
-            interaction.options &&
-            typeof interaction.options.validateRequired === 'function'
-        ) {
-            const valid =
-                interaction.options.validateRequired();
-
-            if (!valid) {
-                const usage =
-                    buildUsage(
-                        prefix,
-                        command.data,
-                        args
-                    );
-
-                await interaction.reply({
-                    content:
-                        `❌ Missing required argument.\n` +
-                        `Usage: \`${usage}\``,
-                    ephemeral: true
-                });
-
-                return;
-            }
-        }
-
-        // Use prefixExecute when available
-        if (
-            typeof command.prefixExecute ===
-            'function'
-        ) {
-            return await command.prefixExecute(
-                interaction,
-                guildConfig,
-                client
-            );
-        }
-
-        // Otherwise use normal execute
-        if (
-            typeof command.execute ===
-            'function'
-        ) {
-            return await command.execute(
-                interaction,
-                guildConfig,
-                client
-            );
-        }
-
-    } catch (error) {
-        console.error(
-            'PREFIX COMMAND ERROR:',
-            error
-        );
 
         try {
-            if (!interactionReplied(message)) {
-                await message.reply(
-                    `❌ An error occurred while running that command.`
-                );
-            }
-        } catch {}
-    }
-}
+          let totalDeleted = 0;
 
-/**
- * Create a fake interaction so existing
- * slash-command code can also work with prefixes.
- */
-function createMockInteraction(
-    message,
-    commandData,
-    args,
-    prefix
-) {
-    const mappedOptions =
-        mapArgumentsToOptions(
-            args,
-            commandData
-        );
+          while (true) {
+            const messages = await message.channel.messages.fetch({
+              limit: 100,
+            });
 
-    let replied = false;
-    let deferred = false;
+            if (messages.size === 0) break;
 
-    const interaction = {
-        id: `prefix-${Date.now()}`,
-
-        applicationId:
-            message.client?.application?.id ||
-            null,
-
-        type: 2,
-
-        commandName:
-            commandData?.name || null,
-
-        user: message.author,
-
-        member: message.member,
-
-        guild: message.guild,
-
-        guildId: message.guild?.id,
-
-        channel: message.channel,
-
-        channelId: message.channel?.id,
-
-        client: message.client,
-
-        message,
-
-        createdTimestamp:
-            Date.now(),
-
-        replied: false,
-
-        deferred: false,
-
-        isChatInputCommand() {
-            return true;
-        },
-
-        isCommand() {
-            return true;
-        },
-
-        isButton() {
-            return false;
-        },
-
-        isStringSelectMenu() {
-            return false;
-        },
-
-        isModalSubmit() {
-            return false;
-        },
-
-        options: createOptionsResolver(
-            mappedOptions,
-            commandData
-        ),
-
-        async reply(payload) {
-            if (
-                typeof payload ===
-                'string'
-            ) {
-                payload = {
-                    content: payload
-                };
-            }
-
-            replied = true;
-            this.replied = true;
-
-            return await message.reply(
-                payload
+            const recent = messages.filter(
+              msg =>
+                Date.now() - msg.createdTimestamp <
+                14 * 24 * 60 * 60 * 1000
             );
-        },
 
-        async followUp(payload) {
-            if (
-                typeof payload ===
-                'string'
-            ) {
-                payload = {
-                    content: payload
-                };
-            }
+            if (recent.size === 0) break;
 
-            return await message.channel.send(
-                payload
-            );
-        },
+            const deleted = await message.channel.bulkDelete(recent, true);
+            totalDeleted += deleted.size;
 
-        async editReply(payload) {
-            if (
-                typeof payload ===
-                'string'
-            ) {
-                payload = {
-                    content: payload
-                };
-            }
+            if (deleted.size < 100) break;
+          }
 
-            if (this._replyMessage) {
-                return await this._replyMessage.edit(
-                    payload
-                );
-            }
-
-            return await message.reply(
-                payload
-            );
-        },
-
-        async deleteReply() {
-            if (this._replyMessage) {
-                await this._replyMessage
-                    .delete()
-                    .catch(() => {});
-            }
-        },
-
-        async deferReply() {
-            deferred = true;
-            this.deferred = true;
-        },
-
-        async showModal() {
-            throw new Error(
-                'Modals are not supported for prefix commands.'
-            );
-        },
-
-        async respond(payload) {
-            return this.reply(payload);
-        },
-
-        prefix,
-
-        repliedMessage: null,
-
-        _replyMessage: null
-    };
-
-    return interaction;
-}
-
-/**
- * Convert prefix arguments into slash-command-like options.
- */
-function mapArgumentsToOptions(
-    args,
-    commandData
-) {
-    const options = [];
-
-    const commandOptions =
-        commandData?.options || [];
-
-    let argumentIndex = 0;
-
-    for (const option of commandOptions) {
-
-        // Subcommands are handled separately
-        if (
-            option.type === 1 ||
-            option.type === 2
-        ) {
-            continue;
+          await message.channel.send(
+            `🧹 Deleted **${totalDeleted}** messages.`
+          );
+        } catch (error) {
+          console.error('NUCK ERROR:', error);
+          await message.channel.send(
+            '❌ I could not delete the messages.'
+          );
         }
 
-        if (
-            argumentIndex >=
-            args.length
-        ) {
-            break;
-        }
+        return;
+      }
 
-        options.push({
-            name: option.name,
+      logger.debug(
+        `Message received from ${message.author.tag}: ${message.content}`
+      );
 
-            description:
-                option.description || '',
+      const countingProcessed = await handleCountingGame(message, client);
 
-            type: option.type,
+      if (countingProcessed) {
+        return;
+      }
 
-            value:
-                args[argumentIndex],
+      // PREFIX COMMANDS
+      await handlePrefixCommand(message, client);
 
-            optionData: option
-        });
+      // XP / LEVELING
+      await handleLeveling(message, client);
 
-        argumentIndex++;
+    } catch (error) {
+      logger.error('Error in messageCreate event:', error);
+    }
+  }
+};
+
+
+// ==========================================
+// PREFIX COMMAND HANDLER
+// ==========================================
+
+async function handlePrefixCommand(message, client) {
+  try {
+    // PREFIX IS ALWAYS .
+    const prefix = '.';
+
+    if (!message.content.startsWith(prefix)) {
+      return;
     }
 
-    // Keep extra arguments
-    while (
-        argumentIndex <
-        args.length
-    ) {
-        options.push({
-            name:
-                `arg${argumentIndex}`,
+    const parts = message.content
+      .slice(prefix.length)
+      .trim()
+      .split(/\s+/);
 
-            description: '',
+    const commandName = parts.shift()?.toLowerCase();
 
-            type: 3,
-
-            value:
-                args[argumentIndex],
-
-            optionData: {
-                type: 3
-            }
-        });
-
-        argumentIndex++;
+    if (!commandName) {
+      return;
     }
 
-    return options;
+    const command = client.commands.get(commandName);
+
+    if (!command) {
+      return;
+    }
+
+    console.log(`PREFIX COMMAND FOUND: ${commandName}`);
+
+    // Run the command directly through the prefix adapter.
+    await executePrefixCommand(
+      command,
+      message,
+      parts,
+      client,
+      prefix,
+      { prefix: '.' }
+    );
+
+  } catch (error) {
+    console.error('PREFIX COMMAND ERROR:', error);
+  }
 }
 
-/**
- * Create a Discord-style option resolver.
- */
-function createOptionsResolver(
-    options,
-    commandData
-) {
-    function getOption(
-        name
+
+// ==========================================
+// COUNTING GAME
+// ==========================================
+
+async function handleCountingGame(message, client) {
+  try {
+    const config = await getCountingGameConfig(
+      client,
+      message.guild.id
+    );
+
+    if (
+      !config.enabled ||
+      !config.channelId ||
+      message.channel.id !== config.channelId
     ) {
-        return options.find(
-            option =>
-                option.name === name
-        );
+      return false;
     }
 
-    function getValue(
-        name
-    ) {
-        return getOption(name)?.value;
-    }
+    const content = message.content.trim();
 
-    const resolver = {
+    const validCount = isValidCountingMessage(
+      content,
+      config
+    );
 
-        _hoistedOptions:
-            options,
+    const invalidAttempt =
+      !validCount ||
+      message.author.id === config.lastUserId;
 
-        data: options,
+    if (invalidAttempt) {
+      await message.delete().catch(() => {});
 
-        get(name) {
-            return getOption(name);
-        },
-
-        getString(
-            name,
-            required = false
-        ) {
-            const value =
-                getValue(name);
-
-            if (
-                value === undefined ||
-                value === null
-            ) {
-                if (required) {
-                    return null;
-                }
-
-                return null;
-            }
-
-            return String(value);
-        },
-
-        getInteger(
-            name,
-            required = false
-        ) {
-            const value =
-                getValue(name);
-
-            if (
-                value === undefined ||
-                value === null
-            ) {
-                return null;
-            }
-
-            const number =
-                Number(value);
-
-            return Number.isInteger(
-                number
-            )
-                ? number
-                : null;
-        },
-
-        getNumber(
-            name,
-            required = false
-        ) {
-            const value =
-                getValue(name);
-
-            if (
-                value === undefined ||
-                value === null
-            ) {
-                return null;
-            }
-
-            const number =
-                Number(value);
-
-            return Number.isNaN(number)
-                ? null
-                : number;
-        },
-
-        getBoolean(
-            name,
-            required = false
-        ) {
-            const value =
-                getValue(name);
-
-            if (
-                value === undefined ||
-                value === null
-            ) {
-                return null;
-            }
-
-            if (
-                String(value).toLowerCase() ===
-                'true'
-            ) {
-                return true;
-            }
-
-            if (
-                String(value).toLowerCase() ===
-                'false'
-            ) {
-                return false;
-            }
-
-            return null;
-        },
-
-        getUser(
-            name,
-            required = false
-        ) {
-            const id =
-                extractUserId(
-                    getValue(name)
-                );
-
-            if (!id) {
-                return null;
-            }
-
-            return (
-                messageMemberFetch(
-                    this._interaction,
-                    id
-                )
-            );
-        },
-
-        getMember(
-            name,
-            required = false
-        ) {
-            const value =
-                getValue(name);
-
-            const id =
-                extractUserId(value);
-
-            if (!id) {
-                return null;
-            }
-
-            return (
-                this._interaction
-                    ?.guild
-                    ?.members
-                    ?.cache
-                    ?.get(id) || null
-            );
-        },
-
-        getRole(
-            name,
-            required = false
-        ) {
-            const id =
-                extractRoleId(
-                    getValue(name)
-                );
-
-            if (!id) {
-                return null;
-            }
-
-            return (
-                this._interaction
-                    ?.guild
-                    ?.roles
-                    ?.cache
-                    ?.get(id) || null
-            );
-        },
-
-        getChannel(
-            name,
-            required = false
-        ) {
-            const id =
-                extractChannelId(
-                    getValue(name)
-                );
-
-            if (!id) {
-                return null;
-            }
-
-            return (
-                this._interaction
-                    ?.guild
-                    ?.channels
-                    ?.cache
-                    ?.get(id) || null
-            );
-        },
-
-        getSubcommand(
-            required = false
-        ) {
-            const option =
-                commandData?.options?.find(
-                    option =>
-                        option.type === 1
-                );
-
-            return option?.name ||
-                null;
-        },
-
-        getSubcommandGroup(
-            required = false
-        ) {
-            const option =
-                commandData?.options?.find(
-                    option =>
-                        option.type === 2
-                );
-
-            return option?.name ||
-                null;
-        },
-
-        validateRequired() {
-            const requiredOptions =
-                (
-                    commandData?.options ||
-                    []
-                ).filter(
-                    option =>
-                        option.required === true &&
-                        option.type !== 1 &&
-                        option.type !== 2
-                );
-
-            for (
-                const option
-                of requiredOptions
-            ) {
-                const supplied =
-                    getValue(
-                        option.name
-                    );
-
-                if (
-                    supplied ===
-                    undefined ||
-                    supplied ===
-                    null ||
-                    String(
-                        supplied
-                    ).trim() === ''
-                ) {
-                    return false;
-                }
-            }
-
-            return true;
+      await saveCountingGameConfig(
+        client,
+        message.guild.id,
+        {
+          ...config,
+          nextNumber: 1,
+          lastUserId: null,
+          currentStreak: 0,
         }
-    };
+      );
 
-    return resolver;
-}
-
-/**
- * Check Discord default member permissions.
- */
-function enforceDefaultCommandPermissions(
-    command,
-    interaction
-) {
-    const permissionValue =
-        command?.data
-            ?.default_member_permissions;
-
-    if (
-        !permissionValue
-    ) {
-        return true;
-    }
-
-    const requiredPermissions =
-        BigInt(
-            permissionValue
+      const failureMessage =
+        await message.channel.send(
+          `❌ Count broken by <@${message.author.id}>. The sequence has been reset to **1**.`
         );
 
-    const memberPermissions =
-        interaction.member
-            ?.permissions;
+      setTimeout(() => {
+        failureMessage.delete().catch(() => {});
+      }, 10000);
 
-    if (
-        !memberPermissions
-    ) {
-        return false;
+      return true;
     }
 
-    const userPermissions =
-        memberPermissions.bitfield;
-
-    if (
-        (userPermissions &
-            requiredPermissions) !==
-        requiredPermissions
-    ) {
-        interaction.reply({
-            content:
-                '❌ You do not have permission to use this command.',
-            ephemeral: true
-        }).catch(() => {});
-
-        return false;
-    }
+    await recordCorrectCount(
+      client,
+      message.guild.id,
+      message.author.id
+    );
 
     return true;
-}
 
-/**
- * Build command usage.
- */
-function buildUsage(
-    prefix,
-    commandData,
-    args
-) {
-    const name =
-        commandData?.name ||
-        'command';
-
-    const options =
-        commandData?.options || [];
-
-    const usageParts = [
-        `${prefix}${name}`
-    ];
-
-    for (
-        const option
-        of options
-    ) {
-        if (
-            option.type === 1 ||
-            option.type === 2
-        ) {
-            continue;
-        }
-
-        if (option.required) {
-            usageParts.push(
-                `<${option.name}>`
-            );
-        } else {
-            usageParts.push(
-                `[${option.name}]`
-            );
-        }
-    }
-
-    return usageParts.join(' ');
-}
-
-/**
- * Extract a user ID from:
- * @User
- * <@UserID>
- * <@!UserID>
- * UserID
- */
-function extractUserId(
-    value
-) {
-    if (!value) {
-        return null;
-    }
-
-    const text =
-        String(value).trim();
-
-    const mention =
-        text.match(
-            /^<@!?(\d+)>$/
-        );
-
-    if (mention) {
-        return mention[1];
-    }
-
-    if (
-        /^\d+$/.test(text)
-    ) {
-        return text;
-    }
-
-    return null;
-}
-
-/**
- * Extract a role ID from:
- * @Role
- * <@&RoleID>
- * RoleID
- */
-function extractRoleId(
-    value
-) {
-    if (!value) {
-        return null;
-    }
-
-    const text =
-        String(value).trim();
-
-    const mention =
-        text.match(
-            /^<@&(\d+)>$/
-        );
-
-    if (mention) {
-        return mention[1];
-    }
-
-    if (
-        /^\d+$/.test(text)
-    ) {
-        return text;
-    }
-
-    return null;
-}
-
-/**
- * Extract a channel ID.
- */
-function extractChannelId(
-    value
-) {
-    if (!value) {
-        return null;
-    }
-
-    const text =
-        String(value).trim();
-
-    const mention =
-        text.match(
-            /^<#(\d+)>$/
-        );
-
-    if (mention) {
-        return mention[1];
-    }
-
-    if (
-        /^\d+$/.test(text)
-    ) {
-        return text;
-    }
-
-    return null;
-}
-
-async function messageMemberFetch(
-    interaction,
-    id
-) {
-    if (
-        !interaction?.guild
-    ) {
-        return null;
-    }
-
-    return await interaction.guild
-        .members
-        .fetch(id)
-        .catch(() => null);
-}
-
-function interactionReplied(
-    message
-) {
-    return false;
-}
-
-/**
- * Compatibility export.
- */
-export function resolvePrefixAccessKey(
-    command
-) {
-    if (!command) {
-        return null;
-    }
-
-    return (
-        command.prefixAccessKey ||
-        command.accessKey ||
-        command.data?.name ||
-        null
+  } catch (error) {
+    logger.error(
+      'Error handling counting game:',
+      error
     );
+
+    return false;
+  }
+}
+
+
+// ==========================================
+// LEVELING
+// ==========================================
+
+async function handleLeveling(message, client) {
+  try {
+    const rateLimitKey =
+      `xp-event:${message.guild.id}:${message.author.id}`;
+
+    const canProcess = await checkRateLimit(
+      rateLimitKey,
+      MESSAGE_XP_RATE_LIMIT_ATTEMPTS,
+      MESSAGE_XP_RATE_LIMIT_WINDOW_MS
+    );
+
+    if (!canProcess) {
+      return;
+    }
+
+    const levelingConfig =
+      await getLevelingConfig(
+        client,
+        message.guild.id
+      );
+
+    if (!levelingConfig?.enabled) {
+      return;
+    }
+
+    if (
+      levelingConfig.ignoredChannels?.includes(
+        message.channel.id
+      )
+    ) {
+      return;
+    }
+
+    if (
+      levelingConfig.ignoredRoles?.length > 0
+    ) {
+      const member =
+        await message.guild.members
+          .fetch(message.author.id)
+          .catch(() => null);
+
+      if (
+        member &&
+        member.roles.cache.some(role =>
+          levelingConfig.ignoredRoles.includes(
+            role.id
+          )
+        )
+      ) {
+        return;
+      }
+    }
+
+    if (
+      levelingConfig.blacklistedUsers?.includes(
+        message.author.id
+      )
+    ) {
+      return;
+    }
+
+    if (
+      !message.content ||
+      message.content.trim().length === 0
+    ) {
+      return;
+    }
+
+    const userData =
+      await getUserLevelData(
+        client,
+        message.guild.id,
+        message.author.id
+      );
+
+    const cooldownTime =
+      levelingConfig.xpCooldown || 60;
+
+    const now = Date.now();
+
+    const timeSinceLastMessage =
+      now - (userData.lastMessage || 0);
+
+    if (
+      timeSinceLastMessage <
+      cooldownTime * 1000
+    ) {
+      return;
+    }
+
+    const minXP =
+      levelingConfig.xpRange?.min ||
+      levelingConfig.xpPerMessage?.min ||
+      15;
+
+    const maxXP =
+      levelingConfig.xpRange?.max ||
+      levelingConfig.xpPerMessage?.max ||
+      25;
+
+    const safeMinXP = Math.max(1, minXP);
+
+    const safeMaxXP =
+      Math.max(safeMinXP, maxXP);
+
+    const xpToGive =
+      Math.floor(
+        Math.random() *
+        (safeMaxXP - safeMinXP + 1)
+      ) + safeMinXP;
+
+    let finalXP = xpToGive;
+
+    if (
+      levelingConfig.xpMultiplier &&
+      levelingConfig.xpMultiplier > 1
+    ) {
+      finalXP =
+        Math.floor(
+          finalXP *
+          levelingConfig.xpMultiplier
+        );
+    }
+
+    const result =
+      await addXp(
+        client,
+        message.guild,
+        message.member,
+        finalXP
+      );
+
+    if (result?.leveledUp) {
+      logger.info(
+        `${message.author.tag} leveled up to level ${result.level} in ${message.guild.name}`
+      );
+    }
+
+  } catch (error) {
+    logger.error(
+      'Error handling leveling for message:',
+      error
+    );
+  }
 }
