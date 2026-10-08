@@ -174,6 +174,11 @@ export async function resetCounting(
   };
 }
 
+
+// ==========================================
+// COUNTING RULES MESSAGE
+// ==========================================
+
 export async function refreshCountingRules(
   channel,
   config
@@ -182,41 +187,14 @@ export async function refreshCountingRules(
     return;
   }
 
-  // Remember ONLY the old rules message
   const oldRulesMessageId =
     config.rulesMessageId;
 
-  // Send the new rules message
-  const rulesMessage =
-    await channel.send({
-      embeds: [
-        {
-          color: 0x5865F2,
+  // ==========================================
+  // DELETE OLD RULES MESSAGE FIRST
+  // ==========================================
 
-          description:
-            `**COUNTING**\n\n` +
-            `### **Channel Rules**\n\n` +
-            `• Wrong number = ❌ Reset\n` +
-            `• Counting related only\n` +
-            `• No side conversations\n` +
-            `**Violation of these rules WILL HAVE consequences and punishment.**`
-        }
-      ]
-    });
-
-  // Save the new rules message ID
-  config.rulesMessageId =
-    rulesMessage.id;
-
-  saveDatabase();
-
-  // Delete ONLY the previous rules message
-  // Wrong-number and same-person messages stay
-  if (
-    oldRulesMessageId &&
-    oldRulesMessageId !==
-      rulesMessage.id
-  ) {
+  if (oldRulesMessageId) {
     try {
       const oldMessage =
         await channel.messages.fetch(
@@ -224,6 +202,59 @@ export async function refreshCountingRules(
         );
 
       await oldMessage.delete();
-    } catch {}
+
+      console.log(
+        '[COUNTING] Old rules message deleted.'
+      );
+
+    } catch (error) {
+      console.log(
+        '[COUNTING] Could not delete old rules message:',
+        error.message
+      );
+    }
+  }
+
+  // ==========================================
+  // SEND NEW RULES MESSAGE
+  // ==========================================
+
+  try {
+    const rulesMessage =
+      await channel.send({
+        embeds: [
+          {
+            color: 0x5865F2,
+
+            description:
+              `**COUNTING**\n\n` +
+              `### **Channel Rules**\n\n` +
+              `• Wrong number = ❌ Reset\n` +
+              `• Counting related only\n` +
+              `• No side conversations\n` +
+              `**Violation of these rules WILL HAVE consequences and punishment.**`
+          }
+        ]
+      });
+
+    // ==========================================
+    // SAVE NEW RULES MESSAGE ID
+    // ==========================================
+
+    config.rulesMessageId =
+      rulesMessage.id;
+
+    saveDatabase();
+
+    console.log(
+      '[COUNTING] New rules message created:',
+      rulesMessage.id
+    );
+
+  } catch (error) {
+    console.error(
+      '[COUNTING] Failed to send rules message:',
+      error
+    );
   }
 }
