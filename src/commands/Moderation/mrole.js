@@ -1,4 +1,8 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import {
+    SlashCommandBuilder,
+    PermissionFlagsBits
+} from 'discord.js';
+
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
@@ -14,13 +18,13 @@ export default {
         .addStringOption(option =>
             option
                 .setName('emoji')
-                .setDescription('Emoji for the role (optional)')
+                .setDescription('Optional emoji')
                 .setRequired(false)
         )
         .addStringOption(option =>
             option
                 .setName('color')
-                .setDescription('Role color, e.g. #ff0000 (optional)')
+                .setDescription('Role color, e.g. #ff0000')
                 .setRequired(false)
         )
         .setDefaultMemberPermissions(
@@ -43,6 +47,7 @@ export default {
 };
 
 async function createRole(interaction) {
+    // BAN MEMBERS REQUIRED
     if (
         !interaction.member.permissions.has(
             PermissionFlagsBits.BanMembers
@@ -69,6 +74,7 @@ async function createRole(interaction) {
         });
     }
 
+    // BOT NEEDS MANAGE ROLES
     if (
         !botMember.permissions.has(
             PermissionFlagsBits.ManageRoles
@@ -97,39 +103,33 @@ async function createRole(interaction) {
             ?.trim();
 
     /*
-     * PREFIX COMMAND SUPPORT
+     * PREFIX COMMAND:
      *
-     * Everything before # = role name
-     * Everything starting with # = color
-     *
-     * Example:
      * .mrole meow ho #ff7527
      *
-     * Name  = meow ho
-     * Color = #ff7527
+     * Everything before # = role name
+     * Everything after # = color
      */
 
-    if (name && name.includes('#')) {
+    if (name?.includes('#')) {
         const parts =
             name.split('#');
 
         name =
-            parts.shift()
-                ?.trim();
+            parts.shift()?.trim();
 
-        const possibleColor =
-            parts.join('#')
-                .trim();
+        const detectedColor =
+            parts.join('#').trim();
 
-        if (!color && possibleColor) {
+        if (!color && detectedColor) {
             color =
-                `#${possibleColor}`;
+                `#${detectedColor}`;
         }
     }
 
     /*
-     * If the prefix parser put the color
-     * into another option, detect it here.
+     * If the prefix parser puts the color
+     * into the emoji argument.
      */
 
     if (
@@ -153,9 +153,7 @@ async function createRole(interaction) {
 
     if (color) {
         if (
-            !/^#?[0-9A-Fa-f]{6}$/.test(
-                color
-            )
+            !/^#?[0-9A-Fa-f]{6}$/.test(color)
         ) {
             return InteractionHelper.universalReply(interaction, {
                 content:
@@ -175,8 +173,6 @@ async function createRole(interaction) {
             await guild.roles.create({
                 name,
                 color: roleColor,
-                unicodeEmoji:
-                    emoji || undefined,
                 permissions: [],
                 reason:
                     `Created by ${interaction.user.tag}`,
@@ -186,11 +182,6 @@ async function createRole(interaction) {
             content:
                 `✅ Created ${role} successfully!\n` +
                 `🎨 **Name:** ${role.name}\n` +
-                `${
-                    emoji
-                        ? `😀 **Emoji:** ${emoji}\n`
-                        : ''
-                }` +
                 `${
                     roleColor
                         ? `🌈 **Color:** ${roleColor}`
