@@ -298,13 +298,8 @@ async function handleCountingGame(
             color: 0xED4245,
 
             description:
-              `💥 You can't count two numbers in a row!\n` +
-              `The next number is **1**.`,
-
-            footer: {
-              text:
-                `High Score: ${config.highScore || 0}`
-            }
+              `💥 **You can't count two numbers in a row!**\n` +
+              `The next number is **1**.`
           }
         ]
       }).catch(() => {});
@@ -348,12 +343,7 @@ async function handleCountingGame(
             title: '💥 Wrong! Chain Broken',
 
             description:
-              `The next number was **${expected}**.`,
-
-            footer: {
-              text:
-                `High Score: ${config.highScore || 0}`
-            }
+              `The next number was **${expected}**.`
           }
         ]
       }).catch(() => {});
