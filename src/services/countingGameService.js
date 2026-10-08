@@ -182,56 +182,36 @@ export async function refreshCountingRules(
     return;
   }
 
+  // Remember ONLY the old rules message
   const oldRulesMessageId =
     config.rulesMessageId;
 
-  const nextNumber =
-    config.nextNumber || 1;
-
-  const currentCount =
-    Math.max(
-      0,
-      nextNumber - 1
-    );
-
-  // Send new rules message
+  // Send the new rules message
   const rulesMessage =
     await channel.send({
       embeds: [
         {
           color: 0x5865F2,
 
-          title: '🔢 Counting',
-
           description:
-            `Next: **${nextNumber}**\n` +
-            `Wrong number = ❌ Reset`,
-
-          fields: [
-            {
-              name: 'Count',
-              value:
-                `**${currentCount}**`,
-              inline: true
-            },
-            {
-              name: 'High Score',
-              value:
-                `**${config.highScore || 0}**`,
-              inline: true
-            }
-          ]
+            `**COUNTING**\n\n` +
+            `### **Channel Rules**\n\n` +
+            `• Wrong number = ❌ Reset\n` +
+            `• Counting related only\n` +
+            `• No side conversations\n` +
+            `**Violation of these rules WILL HAVE consequences and punishment.**`
         }
       ]
     });
 
+  // Save the new rules message ID
   config.rulesMessageId =
     rulesMessage.id;
 
   saveDatabase();
 
-  // Delete ONLY the old rules message
-  // Wrong/Chain Broken messages stay
+  // Delete ONLY the previous rules message
+  // Wrong-number and same-person messages stay
   if (
     oldRulesMessageId &&
     oldRulesMessageId !==
@@ -244,7 +224,6 @@ export async function refreshCountingRules(
         );
 
       await oldMessage.delete();
-
     } catch {}
   }
 }
