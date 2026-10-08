@@ -29,43 +29,54 @@ export default {
         return takeRole(interaction);
     },
 
+    // .trole role name here (user id or @user)
     async prefixExecute(interaction, config, client) {
-        const args =
-            interaction.options?._hoistedOptions?.map(option => String(option.value)) || [];
+        const guild = interaction.guild;
 
-        const roleArg = args[0];
-        const userArg = args[1];
-
-        const roleId = extractRoleId(roleArg);
-        const userId = extractUserId(userArg);
-
-        if (!roleId) {
+        if (!guild) {
             return InteractionHelper.universalReply(interaction, {
-                content: '❌ Role not found. Use a role mention like `@Role`.',
+                content: '❌ This command can only be used in a server.',
                 ephemeral: true,
             });
         }
+
+        const raw = getPrefixText(interaction, 'trole');
+        const { roleText, userText } = splitRoleAndUser(raw);
+
+        if (!roleText) {
+            return InteractionHelper.universalReply(interaction, {
+                content:
+                    '❌ Usage: `.trole role name (user id or @user)`\n' +
+                    'Example: `.trole cool kids 123456789012345678`',
+                ephemeral: true,
+            });
+        }
+
+        const userId = extractUserId(userText);
 
         if (!userId) {
             return InteractionHelper.universalReply(interaction, {
-                content: '❌ User not found. Use a user mention like `@User`.',
+                content:
+                    '❌ User not found. Put the user **last**, as an @mention or a user ID.\n' +
+                    'Example: `.trole cool kids 123456789012345678`',
                 ephemeral: true,
             });
         }
 
-        const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
-        const target = await interaction.guild.members.fetch(userId).catch(() => null);
+        const { role, error } = await findRole(guild, roleText);
 
         if (!role) {
             return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not find that role.',
+                content: error,
                 ephemeral: true,
             });
         }
 
+        const target = await guild.members.fetch(userId).catch(() => null);
+
         if (!target) {
             return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not find that user.',
+                content: '❌ I could not find that user in this server.',
                 ephemeral: true,
             });
         }
@@ -74,17 +85,46 @@ export default {
     },
 };
 
-function extractRoleId(value) {
-    if (!value) return null;
+// Gets the text after ".COMMAND" from a prefix command.
+function getPrefixText(interaction, commandName) {
+    const realMessage =
+        interaction.message ??
+        interaction._responseCoordinator?.message ??
+        null;
 
-    const text = String(value).trim();
+    const content = realMessage?.content?.trim();
 
-    const mention = text.match(/^<@&(\d+)>$/);
-    if (mention) return mention[1];
+    if (content) {
+        const match = content.match(
+            new RegExp(`^\\S*?${commandName}(?:\\s+|$)`, 'i')
+        );
 
-    if (/^\d+$/.test(text)) return text;
+        if (match) {
+            return content.slice(match[0].length).trim();
+        }
+    }
 
-    return null;
+    const args =
+        interaction.options?._hoistedOptions?.map(option =>
+            String(option.value)
+        ) || [];
+
+    return args.join(' ').trim();
+}
+
+// Last word = user (mention or ID), everything before it = role name.
+// Example: "🔥 cool kids 123456789012345678"
+function splitRoleAndUser(raw) {
+    const parts = raw.trim().split(/\s+/);
+
+    if (parts.length < 2) {
+        return { roleText: null, userText: null };
+    }
+
+    const userText = parts.pop();
+    const roleText = parts.join(' ').trim();
+
+    return { roleText, userText };
 }
 
 function extractUserId(value) {
@@ -98,6 +138,67 @@ function extractUserId(value) {
     if (/^\d+$/.test(text)) return text;
 
     return null;
+}
+
+// Makes names easy to compare: lowercase, no emojis/symbols, single spaces.
+function normalizeName(text) {
+    return String(text)
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Finds a role by mention, ID, or name (no @ needed).
+// Returns { role } or { error }.
+async function findRole(guild, text) {
+    const query = String(text).trim();
+
+    // @Role mention or role ID
+    const idMatch = query.match(/^<@&(\d+)>$/) || query.match(/^(\d{15,25})$/);
+    if (idMatch) {
+        const byId = await guild.roles.fetch(idMatch[1]).catch(() => null);
+        if (byId) return { role: byId };
+    }
+
+    await guild.roles.fetch().catch(() => null);
+
+    const roles = [...guild.roles.cache.values()].filter(
+        r => r.id !== guild.id // skip @everyone
+    );
+
+    const lowered = query.toLowerCase();
+    const normalized = normalizeName(query);
+
+    const tiers = [
+        r => r.name.toLowerCase() === lowered,
+        r => normalizeName(r.name) === normalized && normalized !== '',
+        r => normalized !== '' && normalizeName(r.name).startsWith(normalized),
+        r => normalized !== '' && normalizeName(r.name).includes(normalized),
+    ];
+
+    for (const test of tiers) {
+        const matches = roles.filter(test);
+
+        if (matches.length === 1) {
+            return { role: matches[0] };
+        }
+
+        if (matches.length > 1) {
+            const list = matches
+                .slice(0, 5)
+                .map(r => `• ${r.name}`)
+                .join('\n');
+
+            return {
+                error:
+                    `❌ More than one role matches **${query}**:\n${list}\n` +
+                    `Type the full role name (or use the role ID).`,
+            };
+        }
+    }
+
+    return { error: `❌ I could not find a role called **${query}**.` };
 }
 
 async function takeRole(interaction, suppliedRole = null, suppliedTarget = null) {
