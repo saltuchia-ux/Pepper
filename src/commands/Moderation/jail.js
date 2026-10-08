@@ -31,12 +31,88 @@ export default {
         return jailUser(interaction);
     },
 
+    // .jail (user id or @user) reason here
     async prefixExecute(interaction, config, client) {
-        return jailUser(interaction);
+        const guild = interaction.guild;
+
+        if (!guild) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ This command can only be used in a server.',
+                ephemeral: true,
+            });
+        }
+
+        const parts = getPrefixText(interaction, 'jail')
+            .split(/\s+/)
+            .filter(Boolean);
+
+        const userId = extractUserId(parts[0]);
+
+        if (!userId) {
+            return InteractionHelper.universalReply(interaction, {
+                content:
+                    '❌ User not found. Use `.jail @user reason` or `.jail userID reason`.',
+                ephemeral: true,
+            });
+        }
+
+        const member = await guild.members.fetch(userId).catch(() => null);
+
+        if (!member) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ I could not find that member in this server.',
+                ephemeral: true,
+            });
+        }
+
+        const reason = parts.slice(1).join(' ');
+
+        return jailUser(interaction, member, reason);
     },
 };
 
-async function jailUser(interaction) {
+// Gets the text after ".COMMAND" from a prefix command.
+function getPrefixText(interaction, commandName) {
+    const realMessage =
+        interaction.message ??
+        interaction._responseCoordinator?.message ??
+        null;
+
+    const content = realMessage?.content?.trim();
+
+    if (content) {
+        const match = content.match(
+            new RegExp(`^\\S*?${commandName}(?:\\s+|$)`, 'i')
+        );
+
+        if (match) {
+            return content.slice(match[0].length).trim();
+        }
+    }
+
+    const args =
+        interaction.options?._hoistedOptions?.map(option =>
+            String(option.value)
+        ) || [];
+
+    return args.join(' ').trim();
+}
+
+// Accepts <@123>, <@!123> or a plain user ID.
+function extractUserId(value) {
+    if (!value) return null;
+
+    const text = String(value).trim();
+
+    const mention = text.match(/^<@!?(\d+)>$/);
+    if (mention) return mention[1];
+
+    if (/^\d+$/.test(text)) return text;
+
+    return null;
+}
+
+async function jailUser(interaction, suppliedMember = null, suppliedReason = null) {
     // Timeout Members permission
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
         return InteractionHelper.universalReply(interaction, {
@@ -47,6 +123,7 @@ async function jailUser(interaction) {
 
     // Get the user from the prefix command
     const target =
+        suppliedMember ||
         interaction.options.getMember('user') ||
         interaction.options.getUser('user');
 
@@ -58,6 +135,7 @@ async function jailUser(interaction) {
     }
 
     const reason =
+        suppliedReason?.trim() ||
         interaction.options.getString('reason')?.trim() ||
         'No reason provided';
 
