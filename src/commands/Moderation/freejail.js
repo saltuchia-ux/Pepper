@@ -25,12 +25,86 @@ export default {
         return freeJail(interaction);
     },
 
+    // .freejail (user id or @user)
     async prefixExecute(interaction, config, client) {
-        return freeJail(interaction);
+        const guild = interaction.guild;
+
+        if (!guild) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ This command can only be used in a server.',
+                ephemeral: true,
+            });
+        }
+
+        const parts = getPrefixText(interaction, 'freejail')
+            .split(/\s+/)
+            .filter(Boolean);
+
+        const userId = extractUserId(parts[0]);
+
+        if (!userId) {
+            return InteractionHelper.universalReply(interaction, {
+                content:
+                    '❌ User not found. Use `.freejail @user` or `.freejail userID`.',
+                ephemeral: true,
+            });
+        }
+
+        const member = await guild.members.fetch(userId).catch(() => null);
+
+        if (!member) {
+            return InteractionHelper.universalReply(interaction, {
+                content: '❌ I could not find that member in this server.',
+                ephemeral: true,
+            });
+        }
+
+        return freeJail(interaction, member);
     },
 };
 
-async function freeJail(interaction) {
+// Gets the text after ".COMMAND" from a prefix command.
+function getPrefixText(interaction, commandName) {
+    const realMessage =
+        interaction.message ??
+        interaction._responseCoordinator?.message ??
+        null;
+
+    const content = realMessage?.content?.trim();
+
+    if (content) {
+        const match = content.match(
+            new RegExp(`^\\S*?${commandName}(?:\\s+|$)`, 'i')
+        );
+
+        if (match) {
+            return content.slice(match[0].length).trim();
+        }
+    }
+
+    const args =
+        interaction.options?._hoistedOptions?.map(option =>
+            String(option.value)
+        ) || [];
+
+    return args.join(' ').trim();
+}
+
+// Accepts <@123>, <@!123> or a plain user ID.
+function extractUserId(value) {
+    if (!value) return null;
+
+    const text = String(value).trim();
+
+    const mention = text.match(/^<@!?(\d+)>$/);
+    if (mention) return mention[1];
+
+    if (/^\d+$/.test(text)) return text;
+
+    return null;
+}
+
+async function freeJail(interaction, suppliedMember = null) {
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
         return InteractionHelper.universalReply(interaction, {
             content: '❌ You need **Timeout Members** permission to use `.freejail`.',
@@ -38,7 +112,7 @@ async function freeJail(interaction) {
         });
     }
 
-    const target = interaction.options.getMember('user');
+    const target = suppliedMember || interaction.options.getMember('user');
 
     if (!target) {
         return InteractionHelper.universalReply(interaction, {
