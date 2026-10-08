@@ -1,9 +1,11 @@
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
+
 import {
   getLevelingConfig,
   getUserLevelData
 } from '../services/leveling/leveling.js';
+
 import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { executePrefixCommand } from '../utils/messageAdapter.js';
@@ -112,6 +114,15 @@ export default {
       );
 
       // ==========================================
+      // PREFIX COMMANDS
+      // ==========================================
+
+      await handlePrefixCommand(
+        message,
+        client
+      );
+
+      // ==========================================
       // COUNTING GAME
       // ==========================================
 
@@ -124,15 +135,6 @@ export default {
       if (countingProcessed) {
         return;
       }
-
-      // ==========================================
-      // PREFIX COMMANDS
-      // ==========================================
-
-      await handlePrefixCommand(
-        message,
-        client
-      );
 
       // ==========================================
       // XP / LEVELING
@@ -248,8 +250,14 @@ async function handleCountingGame(
     const content =
       message.content.trim();
 
-    // Only plain whole numbers count.
-    // Everything else is ignored.
+    // Let prefix commands work even
+    // inside the counting channel.
+    if (content.startsWith('.')) {
+      return false;
+    }
+
+    // Everything that is not a number
+    // is handled by the counting system.
     if (
       !isValidCountingMessage(
         content
