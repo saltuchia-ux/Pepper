@@ -1,16 +1,19 @@
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
-import { getLevelingConfig, getUserLevelData } from '../services/leveling/leveling.js';
+import {
+  getLevelingConfig,
+  getUserLevelData
+} from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { executePrefixCommand } from '../utils/messageAdapter.js';
-import { getGuildConfig } from '../services/config/guildConfig.js';
 
 import {
   getCountingGameConfig,
   saveCountingGameConfig,
   isValidCountingMessage,
   recordCorrectCount,
+  refreshCountingRules
 } from '../services/countingGameService.js';
 
 const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
@@ -21,47 +24,81 @@ export default {
 
   async execute(message, client) {
     try {
-      if (message.author.bot || !message.guild) return;
+      if (message.author.bot || !message.guild) {
+        return;
+      }
 
+      // ==========================================
       // NUCK COMMAND
-      if (message.content.trim().toLowerCase() === '.nuck') {
-        if (!message.member.permissions.has('Administrator')) {
+      // ==========================================
+
+      if (
+        message.content.trim().toLowerCase() === '.nuck'
+      ) {
+        if (
+          !message.member.permissions.has(
+            'Administrator'
+          )
+        ) {
           return;
         }
 
-        if (!message.guild.members.me.permissions.has('ManageMessages')) {
-          return message.reply('❌ I need Manage Messages permission.');
+        if (
+          !message.guild.members.me.permissions.has(
+            'ManageMessages'
+          )
+        ) {
+          return message.reply(
+            '❌ I need Manage Messages permission.'
+          );
         }
 
         try {
           let totalDeleted = 0;
 
           while (true) {
-            const messages = await message.channel.messages.fetch({
-              limit: 100,
-            });
+            const messages =
+              await message.channel.messages.fetch({
+                limit: 100
+              });
 
-            if (messages.size === 0) break;
+            if (messages.size === 0) {
+              break;
+            }
 
             const recent = messages.filter(
               msg =>
-                Date.now() - msg.createdTimestamp <
+                Date.now() -
+                  msg.createdTimestamp <
                 14 * 24 * 60 * 60 * 1000
             );
 
-            if (recent.size === 0) break;
+            if (recent.size === 0) {
+              break;
+            }
 
-            const deleted = await message.channel.bulkDelete(recent, true);
+            const deleted =
+              await message.channel.bulkDelete(
+                recent,
+                true
+              );
+
             totalDeleted += deleted.size;
 
-            if (deleted.size < 100) break;
+            if (deleted.size < 100) {
+              break;
+            }
           }
 
           await message.channel.send(
             `🧹 Deleted **${totalDeleted}** messages.`
           );
         } catch (error) {
-          console.error('NUCK ERROR:', error);
+          console.error(
+            'NUCK ERROR:',
+            error
+          );
+
           await message.channel.send(
             '❌ I could not delete the messages.'
           );
@@ -74,20 +111,43 @@ export default {
         `Message received from ${message.author.tag}: ${message.content}`
       );
 
-      const countingProcessed = await handleCountingGame(message, client);
+      // ==========================================
+      // COUNTING GAME
+      // ==========================================
+
+      const countingProcessed =
+        await handleCountingGame(
+          message,
+          client
+        );
 
       if (countingProcessed) {
         return;
       }
 
+      // ==========================================
       // PREFIX COMMANDS
-      await handlePrefixCommand(message, client);
+      // ==========================================
 
+      await handlePrefixCommand(
+        message,
+        client
+      );
+
+      // ==========================================
       // XP / LEVELING
-      await handleLeveling(message, client);
+      // ==========================================
+
+      await handleLeveling(
+        message,
+        client
+      );
 
     } catch (error) {
-      logger.error('Error in messageCreate event:', error);
+      logger.error(
+        'Error in messageCreate event:',
+        error
+      );
     }
   }
 };
@@ -97,46 +157,61 @@ export default {
 // PREFIX COMMAND HANDLER
 // ==========================================
 
-async function handlePrefixCommand(message, client) {
+async function handlePrefixCommand(
+  message,
+  client
+) {
   try {
-    // PREFIX IS ALWAYS .
     const prefix = '.';
 
-    if (!message.content.startsWith(prefix)) {
+    if (
+      !message.content.startsWith(prefix)
+    ) {
       return;
     }
 
-    const parts = message.content
-      .slice(prefix.length)
-      .trim()
-      .split(/\s+/);
+    const parts =
+      message.content
+        .slice(prefix.length)
+        .trim()
+        .split(/\s+/);
 
-    const commandName = parts.shift()?.toLowerCase();
+    const commandName =
+      parts.shift()?.toLowerCase();
 
     if (!commandName) {
       return;
     }
 
-    const command = client.commands.get(commandName);
+    const command =
+      client.commands.get(
+        commandName
+      );
 
     if (!command) {
       return;
     }
 
-    console.log(`PREFIX COMMAND FOUND: ${commandName}`);
+    console.log(
+      `PREFIX COMMAND FOUND: ${commandName}`
+    );
 
-    // Run the command directly through the prefix adapter.
     await executePrefixCommand(
       command,
       message,
       parts,
       client,
       prefix,
-      { prefix: '.' }
+      {
+        prefix: '.'
+      }
     );
 
   } catch (error) {
-    console.error('PREFIX COMMAND ERROR:', error);
+    console.error(
+      'PREFIX COMMAND ERROR:',
+      error
+    );
   }
 }
 
@@ -145,62 +220,183 @@ async function handlePrefixCommand(message, client) {
 // COUNTING GAME
 // ==========================================
 
-async function handleCountingGame(message, client) {
+async function handleCountingGame(
+  message,
+  client
+) {
   try {
-    const config = await getCountingGameConfig(
-      client,
-      message.guild.id
-    );
+    const config =
+      await getCountingGameConfig(
+        client,
+        message.guild.id
+      );
 
     if (
-      !config.enabled ||
-      !config.channelId ||
-      message.channel.id !== config.channelId
+      !config?.enabled ||
+      !config.channelId
     ) {
       return false;
     }
 
-    const content = message.content.trim();
+    if (
+      message.channel.id !==
+      config.channelId
+    ) {
+      return false;
+    }
 
-    const validCount = isValidCountingMessage(
-      content,
-      config
-    );
+    const content =
+      message.content.trim();
 
-    const invalidAttempt =
-      !validCount ||
-      message.author.id === config.lastUserId;
+    // Only plain whole numbers count.
+    // Everything else is ignored.
+    if (
+      !isValidCountingMessage(
+        content
+      )
+    ) {
+      return true;
+    }
 
-    if (invalidAttempt) {
-      await message.delete().catch(() => {});
+    const number =
+      Number(content);
+
+    const expected =
+      config.nextNumber || 1;
+
+    // ==========================================
+    // SAME PERSON TWICE
+    // ==========================================
+
+    if (
+      config.lastUserId ===
+      message.author.id
+    ) {
+      const resetConfig = {
+        ...config,
+        nextNumber: 1,
+        lastUserId: null
+      };
 
       await saveCountingGameConfig(
         client,
         message.guild.id,
-        {
-          ...config,
-          nextNumber: 1,
-          lastUserId: null,
-          currentStreak: 0,
-        }
+        resetConfig
       );
 
-      const failureMessage =
-        await message.channel.send(
-          `❌ Count broken by <@${message.author.id}>. The sequence has been reset to **1**.`
-        );
+      await message
+        .react('❌')
+        .catch(() => {});
 
-      setTimeout(() => {
-        failureMessage.delete().catch(() => {});
-      }, 10000);
+      await message.channel.send({
+        embeds: [
+          {
+            color: 0xED4245,
+
+            title: '💥 Chain Broken',
+
+            description:
+              `<@${message.author.id}> counted twice in a row.\n\n` +
+              `The count stopped at **${expected - 1}**.\n` +
+              `The next number is **1**.`,
+
+            footer: {
+              text:
+                `High Score: ${config.highScore || 0}`
+            }
+          }
+        ],
+
+        allowedMentions: {
+          users: [
+            message.author.id
+          ]
+        }
+      }).catch(() => {});
+
+      await refreshCountingRules(
+        message.channel,
+        resetConfig
+      );
 
       return true;
     }
 
-    await recordCorrectCount(
-      client,
-      message.guild.id,
-      message.author.id
+    // ==========================================
+    // WRONG NUMBER
+    // ==========================================
+
+    if (
+      number !== expected
+    ) {
+      const resetConfig = {
+        ...config,
+        nextNumber: 1,
+        lastUserId: null
+      };
+
+      await saveCountingGameConfig(
+        client,
+        message.guild.id,
+        resetConfig
+      );
+
+      await message
+        .react('❌')
+        .catch(() => {});
+
+      await message.channel.send({
+        embeds: [
+          {
+            color: 0xED4245,
+
+            title: '💥 Chain Broken',
+
+            description:
+              `<@${message.author.id}> sent **${number}**, but the next number was **${expected}**.\n\n` +
+              `The next number is **1**.`,
+
+            footer: {
+              text:
+                `High Score: ${config.highScore || 0}`
+            }
+          }
+        ],
+
+        allowedMentions: {
+          users: [
+            message.author.id
+          ]
+        }
+      }).catch(() => {});
+
+      await refreshCountingRules(
+        message.channel,
+        resetConfig
+      );
+
+      return true;
+    }
+
+    // ==========================================
+    // CORRECT NUMBER
+    // ==========================================
+
+    const updatedConfig =
+      await recordCorrectCount(
+        client,
+        message.guild.id,
+        message.author.id,
+        number
+      );
+
+    await message
+      .react('✅')
+      .catch(() => {});
+
+    await refreshCountingRules(
+      message.channel,
+      updatedConfig
     );
 
     return true;
@@ -220,16 +416,20 @@ async function handleCountingGame(message, client) {
 // LEVELING
 // ==========================================
 
-async function handleLeveling(message, client) {
+async function handleLeveling(
+  message,
+  client
+) {
   try {
     const rateLimitKey =
       `xp-event:${message.guild.id}:${message.author.id}`;
 
-    const canProcess = await checkRateLimit(
-      rateLimitKey,
-      MESSAGE_XP_RATE_LIMIT_ATTEMPTS,
-      MESSAGE_XP_RATE_LIMIT_WINDOW_MS
-    );
+    const canProcess =
+      await checkRateLimit(
+        rateLimitKey,
+        MESSAGE_XP_RATE_LIMIT_ATTEMPTS,
+        MESSAGE_XP_RATE_LIMIT_WINDOW_MS
+      );
 
     if (!canProcess) {
       return;
@@ -241,7 +441,9 @@ async function handleLeveling(message, client) {
         message.guild.id
       );
 
-    if (!levelingConfig?.enabled) {
+    if (
+      !levelingConfig?.enabled
+    ) {
       return;
     }
 
@@ -258,15 +460,18 @@ async function handleLeveling(message, client) {
     ) {
       const member =
         await message.guild.members
-          .fetch(message.author.id)
+          .fetch(
+            message.author.id
+          )
           .catch(() => null);
 
       if (
         member &&
-        member.roles.cache.some(role =>
-          levelingConfig.ignoredRoles.includes(
-            role.id
-          )
+        member.roles.cache.some(
+          role =>
+            levelingConfig.ignoredRoles.includes(
+              role.id
+            )
         )
       ) {
         return;
@@ -301,7 +506,8 @@ async function handleLeveling(message, client) {
     const now = Date.now();
 
     const timeSinceLastMessage =
-      now - (userData.lastMessage || 0);
+      now -
+      (userData.lastMessage || 0);
 
     if (
       timeSinceLastMessage <
@@ -320,18 +526,31 @@ async function handleLeveling(message, client) {
       levelingConfig.xpPerMessage?.max ||
       25;
 
-    const safeMinXP = Math.max(1, minXP);
+    const safeMinXP =
+      Math.max(
+        1,
+        minXP
+      );
 
     const safeMaxXP =
-      Math.max(safeMinXP, maxXP);
+      Math.max(
+        safeMinXP,
+        maxXP
+      );
 
     const xpToGive =
       Math.floor(
         Math.random() *
-        (safeMaxXP - safeMinXP + 1)
-      ) + safeMinXP;
+          (
+            safeMaxXP -
+            safeMinXP +
+            1
+          )
+      ) +
+      safeMinXP;
 
-    let finalXP = xpToGive;
+    let finalXP =
+      xpToGive;
 
     if (
       levelingConfig.xpMultiplier &&
@@ -352,7 +571,9 @@ async function handleLeveling(message, client) {
         finalXP
       );
 
-    if (result?.leveledUp) {
+    if (
+      result?.leveledUp
+    ) {
       logger.info(
         `${message.author.tag} leveled up to level ${result.level} in ${message.guild.name}`
       );
