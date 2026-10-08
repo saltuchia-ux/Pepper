@@ -58,6 +58,7 @@ async function setupCounting(
   interaction,
   client
 ) {
+  // BAN MEMBERS PERMISSION REQUIRED
   if (
     !interaction.member.permissions.has(
       PermissionFlagsBits.BanMembers
@@ -67,7 +68,7 @@ async function setupCounting(
       interaction,
       {
         content:
-          '❌ You need **Ban Members** permission.',
+          '❌ You need **Ban Members** permission to set the counting channel.',
         ephemeral: true
       }
     );
@@ -120,7 +121,9 @@ async function setupCounting(
     highScore:
       oldConfig?.highScore || 0,
 
-    rulesMessageId: null
+    // Keep the existing rules message ID
+    rulesMessageId:
+      oldConfig?.rulesMessageId || null
   };
 
   await saveCountingGameConfig(
