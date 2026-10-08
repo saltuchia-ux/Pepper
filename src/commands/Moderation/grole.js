@@ -149,7 +149,37 @@ function normalizeName(text) {
         .trim();
 }
 
+// How alike two strings are, from 0 (nothing) to 1 (identical).
+function similarity(a, b) {
+    if (a === b) return 1;
+    if (!a.length || !b.length) return 0;
+
+    const rows = a.length + 1;
+    const cols = b.length + 1;
+    const dist = Array.from({ length: rows }, (_, i) => {
+        const row = new Array(cols).fill(0);
+        row[0] = i;
+        return row;
+    });
+
+    for (let j = 0; j < cols; j++) dist[0][j] = j;
+
+    for (let i = 1; i < rows; i++) {
+        for (let j = 1; j < cols; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            dist[i][j] = Math.min(
+                dist[i - 1][j] + 1,
+                dist[i][j - 1] + 1,
+                dist[i - 1][j - 1] + cost
+            );
+        }
+    }
+
+    return 1 - dist[a.length][b.length] / Math.max(a.length, b.length);
+}
+
 // Finds a role by mention, ID, or name (no @ needed).
+// The closest match wins, so the name does not have to be exact.
 // Returns { role } or { error }.
 async function findRole(guild, text) {
     const query = String(text).trim();
@@ -163,42 +193,63 @@ async function findRole(guild, text) {
 
     await guild.roles.fetch().catch(() => null);
 
-    const roles = [...guild.roles.cache.values()].filter(
-        r => r.id !== guild.id // skip @everyone
-    );
+    const roles = [...guild.roles.cache.values()]
+        .filter(r => r.id !== guild.id) // skip @everyone
+        .map(r => ({ role: r, clean: normalizeName(r.name) }));
 
     const lowered = query.toLowerCase();
     const normalized = normalizeName(query);
 
-    const tiers = [
-        r => r.name.toLowerCase() === lowered,
-        r => normalizeName(r.name) === normalized && normalized !== '',
-        r => normalized !== '' && normalizeName(r.name).startsWith(normalized),
-        r => normalized !== '' && normalizeName(r.name).includes(normalized),
-    ];
+    // Best pick from a list: shortest name first (closest in size),
+    // then the higher role if still tied.
+    const closest = (list) =>
+        [...list].sort(
+            (a, b) =>
+                a.clean.length - b.clean.length ||
+                b.role.position - a.role.position
+        )[0].role;
 
-    for (const test of tiers) {
-        const matches = roles.filter(test);
+    // 1) exact name
+    const exact = roles.filter(r => r.role.name.toLowerCase() === lowered);
+    if (exact.length) return { role: closest(exact) };
 
-        if (matches.length === 1) {
-            return { role: matches[0] };
+    if (normalized) {
+        // 2) same name ignoring emojis / symbols / capitals
+        const same = roles.filter(r => r.clean === normalized);
+        if (same.length) return { role: closest(same) };
+
+        // 3) role name starts with what you typed
+        const starts = roles.filter(r => r.clean.startsWith(normalized));
+        if (starts.length) return { role: closest(starts) };
+
+        // 4) role name contains what you typed
+        const contains = roles.filter(r => r.clean.includes(normalized));
+        if (contains.length) return { role: closest(contains) };
+
+        // 5) spelling mistakes: pick the most similar name
+        let best = null;
+        let bestScore = 0;
+
+        for (const r of roles) {
+            if (!r.clean) continue;
+
+            const score = Math.max(
+                similarity(normalized, r.clean),
+                similarity(normalized, r.clean.slice(0, normalized.length))
+            );
+
+            if (score > bestScore) {
+                best = r;
+                bestScore = score;
+            }
         }
 
-        if (matches.length > 1) {
-            const list = matches
-                .slice(0, 5)
-                .map(r => `• ${r.name}`)
-                .join('\n');
-
-            return {
-                error:
-                    `❌ More than one role matches **${query}**:\n${list}\n` +
-                    `Type the full role name (or use the role ID).`,
-            };
+        if (best && bestScore >= 0.5) {
+            return { role: best.role };
         }
     }
 
-    return { error: `❌ I could not find a role called **${query}**.` };
+    return { error: `❌ I could not find a role close to **${query}**.` };
 }
 
 async function giveRole(interaction, suppliedRole = null, suppliedTarget = null) {
