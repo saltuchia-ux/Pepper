@@ -250,18 +250,14 @@ async function handleCountingGame(
     const content =
       message.content.trim();
 
-    // Let prefix commands work even
-    // inside the counting channel.
+    // Allow prefix commands
     if (content.startsWith('.')) {
       return false;
     }
 
-    // Everything that is not a number
-    // is handled by the counting system.
+    // Ignore non-number messages
     if (
-      !isValidCountingMessage(
-        content
-      )
+      !isValidCountingMessage(content)
     ) {
       return true;
     }
@@ -301,11 +297,8 @@ async function handleCountingGame(
           {
             color: 0xED4245,
 
-            title: '💥 Chain Broken',
-
             description:
-              `<@${message.author.id}> counted twice in a row.\n\n` +
-              `The count stopped at **${expected - 1}**.\n` +
+              `💥 You can't count two numbers in a row!\n` +
               `The next number is **1**.`,
 
             footer: {
@@ -313,13 +306,7 @@ async function handleCountingGame(
                 `High Score: ${config.highScore || 0}`
             }
           }
-        ],
-
-        allowedMentions: {
-          users: [
-            message.author.id
-          ]
-        }
+        ]
       }).catch(() => {});
 
       await refreshCountingRules(
@@ -358,24 +345,17 @@ async function handleCountingGame(
           {
             color: 0xED4245,
 
-            title: '💥 Chain Broken',
+            title: '💥 Wrong! Chain Broken',
 
             description:
-              `<@${message.author.id}> sent **${number}**, but the next number was **${expected}**.\n\n` +
-              `The next number is **1**.`,
+              `The next number was **${expected}**.`,
 
             footer: {
               text:
                 `High Score: ${config.highScore || 0}`
             }
           }
-        ],
-
-        allowedMentions: {
-          users: [
-            message.author.id
-          ]
-        }
+        ]
       }).catch(() => {});
 
       await refreshCountingRules(
@@ -524,72 +504,16 @@ async function handleLeveling(
       return;
     }
 
-    const minXP =
-      levelingConfig.xpRange?.min ||
-      levelingConfig.xpPerMessage?.min ||
-      15;
-
-    const maxXP =
-      levelingConfig.xpRange?.max ||
-      levelingConfig.xpPerMessage?.max ||
-      25;
-
-    const safeMinXP =
-      Math.max(
-        1,
-        minXP
-      );
-
-    const safeMaxXP =
-      Math.max(
-        safeMinXP,
-        maxXP
-      );
-
-    const xpToGive =
-      Math.floor(
-        Math.random() *
-          (
-            safeMaxXP -
-            safeMinXP +
-            1
-          )
-      ) +
-      safeMinXP;
-
-    let finalXP =
-      xpToGive;
-
-    if (
-      levelingConfig.xpMultiplier &&
-      levelingConfig.xpMultiplier > 1
-    ) {
-      finalXP =
-        Math.floor(
-          finalXP *
-          levelingConfig.xpMultiplier
-        );
-    }
-
-    const result =
-      await addXp(
-        client,
-        message.guild,
-        message.member,
-        finalXP
-      );
-
-    if (
-      result?.leveledUp
-    ) {
-      logger.info(
-        `${message.author.tag} leveled up to level ${result.level} in ${message.guild.name}`
-      );
-    }
+    await addXp(
+      client,
+      message.guild.id,
+      message.author.id,
+      message
+    );
 
   } catch (error) {
     logger.error(
-      'Error handling leveling for message:',
+      'Error handling leveling:',
       error
     );
   }
