@@ -1,108 +1,119 @@
-import { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, ChannelType, MessageFlags } from 'discord.js';
-import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
-import { logModerationAction } from '../../utils/moderation.js';
-import { logger } from '../../utils/logger.js';
+```javascript
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { WarningService } from '../../services/moderation/warningService.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
-import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
+import { logModerationAction } from '../../utils/moderation.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+
 export default {
     data: new SlashCommandBuilder()
-        .setName("warn")
-        .setDescription("Warn a user")
-        .addUserOption((o) =>
-            o
-                .setName("target")
-                .setRequired(true)
-                .setDescription("User to warn"),
-        )
-        .addStringOption((o) =>
-            o
-                .setName("reason")
-                .setRequired(true)
-                .setDescription("Reason for the warning"),
-        )
+        .setName('warn')
+        .setDescription('Warn a user')
+        .addUserOption(option =>
+            option.setName('target')
+                .setDescription('User to warn')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('reason')
+                .setDescription('Reason for warning')
+                .setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
-    category: "moderation",
 
-    async execute(interaction, config, client) {
-        const deferSuccess = await InteractionHelper.safeDefer(interaction);
-        if (!deferSuccess) {
-            logger.warn(`Warn interaction defer failed`, {
-                userId: interaction.user.id,
-                guildId: interaction.guildId,
-                commandName: 'warn'
-            });
-            return;
+    category: 'moderation',
+
+    async prefixExecute(interaction, config, client) {
+        const reply = content =>
+            InteractionHelper.universalReply(interaction, { content });
+
+        if (!interaction.guild) {
+            return reply('❌ Use this command inside a server.');
         }
 
-        const target = interaction.options.getUser("target");
-        const member = interaction.options.getMember("target");
-        const reason = interaction.options.getString("reason");
-        const moderator = interaction.user;
-        const guildId = interaction.guildId;
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
+            return reply('❌ You need Timeout Members (Mute Members) permission.');
+        }
 
-        if (!target) {
-            throw new TitanBotError(
-                'Missing target user',
-                ErrorTypes.USER_INPUT,
-                'You must specify a user to warn.',
-                { subtype: 'invalid_user' },
-            );
+        // Read the original prefix message.
+        const content =
+            interaction.message?.content ||
+            interaction._responseCoordinator?.message?.content ||
+            '';
+
+        const match = content.match(/^\S*warn\s+(\S+)\s+([\s\S]+)/i);
+
+        if (!match) {
+            return reply('Usage: `.warn @user reason` or `.warn USER_ID reason`');
+        }
+
+        const userInput = match[1];
+        const reason = match[2].trim();
+
+        const idMatch = userInput.match(/^<@!?(\d+)>$/);
+        const targetId = idMatch ? idMatch[1] : userInput;
+
+        if (!/^\d{17,20}$/.test(targetId)) {
+            return reply('❌ Please mention a user or provide their user ID.');
         }
 
         if (!reason) {
-            throw new TitanBotError(
-                'Missing warning reason',
-                ErrorTypes.VALIDATION,
-                'You must provide a reason for the warning.',
-                { subtype: 'missing_required' },
-            );
+            return reply('❌ Please provide a reason.');
         }
+
+        if (targetId === interaction.user.id) {
+            return reply('❌ You cannot warn yourself.');
+        }
+
+        if (targetId === client.user.id) {
+            return reply('❌ You cannot warn the bot.');
+        }
+
+        const member = await interaction.guild.members
+            .fetch(targetId)
+            .catch(() => null);
 
         if (!member) {
-            throw new TitanBotError(
-                "Target not found",
-                ErrorTypes.USER_INPUT,
-                "The target user is not currently in this server."
-            );
+            return reply('❌ That user is not in this server.');
         }
 
-        ModerationService.assertModerationHierarchy(interaction.member, member, 'warn');
+        try {
+            ModerationService.assertModerationHierarchy(
+                interaction.member,
+                member,
+                'warn'
+            );
 
-        const { id, totalCount } = await WarningService.addWarning({
-            guildId,
-            userId: target.id,
-            moderatorId: moderator.id,
-            reason,
-            timestamp: Date.now()
-        });
-
-        await logModerationAction({
-            client,
-            guild: interaction.guild,
-            event: {
-                action: "User Warned",
-                target: `${target.tag} (${target.id})`,
-                executor: `${moderator.tag} (${moderator.id})`,
+            const result = await WarningService.addWarning({
+                guildId: interaction.guild.id,
+                userId: member.id,
+                moderatorId: interaction.user.id,
                 reason,
-                metadata: {
-                    userId: target.id,
-                    moderatorId: moderator.id,
-                    totalWarns: totalCount,
-                    warningNumber: totalCount,
-                    warningId: id
-                }
-            }
-        });
+                timestamp: Date.now()
+            });
 
-        await InteractionHelper.safeEditReply(interaction, {
-            embeds: [
-                successEmbed(
-                    `⚠️ **Warned** ${target.tag}`,
-                    `**Reason:** ${reason}\n**Total Warns:** ${totalCount}`,
-                ),
-            ],
-        });
+            await logModerationAction({
+                client,
+                guild: interaction.guild,
+                event: {
+                    action: 'User Warned',
+                    target: `${member.user.tag} (${member.id})`,
+                    executor: `${interaction.user.tag} (${interaction.user.id})`,
+                    reason,
+                    metadata: {
+                        userId: member.id,
+                        moderatorId: interaction.user.id,
+                        totalWarns: result.totalCount
+                    }
+                }
+            });
+
+            return reply(
+                `⚠️ **${member.user.tag} has been warned.**\n` +
+                `**Reason:** ${reason}\n` +
+                `**Total warnings:** ${result.totalCount}`
+            );
+        } catch (error) {
+            return reply(`❌ Could not warn user: ${error.message}`);
+        }
     }
 };
+```
