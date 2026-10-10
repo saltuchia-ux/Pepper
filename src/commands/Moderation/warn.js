@@ -212,14 +212,14 @@ async function warnMember(interaction, client, target, member, reason) {
         }
     });
 
-    // Tell the user in a DM (this fails if their DMs are closed)
-    const dmSent = target.bot
-        ? null
-        : await sendWarningDm({
+    // Tell the user in a DM (silently skipped if their DMs are closed)
+    if (!target.bot) {
+        await sendWarningDm({
             guild: interaction.guild,
             target,
             reason,
         });
+    }
 
     const avatar = target.displayAvatarURL?.({ size: 256 });
 
@@ -231,18 +231,8 @@ async function warnMember(interaction, client, target, member, reason) {
                 color: 'warning',
                 thumbnail: avatar || null,
                 fields: [
-                    { name: '👤 User', value: `${target}\n\`${target.id}\``, inline: true },
                     { name: '🛡️ Moderator', value: `${moderator}`, inline: true },
-                    { name: '📝 Reason', value: reason },
-                    {
-                        name: '📬 Notified',
-                        value:
-                            dmSent === null
-                                ? '🤖 Bots cannot receive DMs.'
-                                : dmSent
-                                    ? '✅ The user was told by DM.'
-                                    : "⚠️ I couldn't DM this user (their DMs are closed).",
-                    },
+                    { name: '📝 Reason', value: reason, inline: true },
                 ],
                 footer: `Warning ID: ${id}`,
                 timestamp: true,
