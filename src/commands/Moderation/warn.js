@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { successEmbed } from '../../utils/embeds.js';
+import { createEmbed } from '../../utils/embeds.js';
 import { logModerationAction } from '../../utils/moderation.js';
 import { logger } from '../../utils/logger.js';
 import { WarningService } from '../../services/moderation/warningService.js';
@@ -69,7 +69,7 @@ export default {
 
         if (!guild) {
             return InteractionHelper.universalReply(interaction, {
-                content: '❌ This command can only be used in a server.',
+                embeds: [errorBox('Server only', 'This command can only be used in a server.')],
                 ephemeral: true,
             });
         }
@@ -82,8 +82,13 @@ export default {
 
         if (!userId) {
             return InteractionHelper.universalReply(interaction, {
-                content:
-                    '❌ User not found. Use `.warn @user reason` or `.warn userID reason`.',
+                embeds: [
+                    errorBox(
+                        'User not found',
+                        'Use `.warn @user reason` or `.warn userID reason`.\n' +
+                        'Example: `.warn 123456789012345678 spamming`'
+                    ),
+                ],
                 ephemeral: true,
             });
         }
@@ -92,7 +97,12 @@ export default {
 
         if (!member) {
             return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not find that member in this server.',
+                embeds: [
+                    errorBox(
+                        'Member not found',
+                        'I could not find that member in this server. Check the ID and make sure they have not left.'
+                    ),
+                ],
                 ephemeral: true,
             });
         }
@@ -202,12 +212,72 @@ async function warnMember(interaction, client, target, member, reason) {
         }
     });
 
+    // Tell the user in a DM (this fails if their DMs are closed)
+    const dmSent = target.bot
+        ? null
+        : await sendWarningDm({
+            guild: interaction.guild,
+            target,
+            reason,
+        });
+
+    const avatar = target.displayAvatarURL?.({ size: 256 });
+
     await InteractionHelper.universalReply(interaction, {
         embeds: [
-            successEmbed(
-                `⚠️ **Warned** ${target.tag}`,
-                `**Reason:** ${reason}\n**Total Warns:** ${totalCount}`,
-            ),
+            createEmbed({
+                title: '⚠️ Member Warned',
+                description: `${target} has been warned.`,
+                color: 'warning',
+                thumbnail: avatar || null,
+                fields: [
+                    { name: '👤 User', value: `${target}\n\`${target.id}\``, inline: true },
+                    { name: '🛡️ Moderator', value: `${moderator}`, inline: true },
+                    { name: '📝 Reason', value: reason },
+                    {
+                        name: '📬 Notified',
+                        value:
+                            dmSent === null
+                                ? '🤖 Bots cannot receive DMs.'
+                                : dmSent
+                                    ? '✅ The user was told by DM.'
+                                    : "⚠️ I couldn't DM this user (their DMs are closed).",
+                    },
+                ],
+                footer: `Warning ID: ${id}`,
+                timestamp: true,
+            }),
         ],
+    });
+}
+
+// DM sent to the warned user:
+//   "You have been warned in <server> for: <reason>"  (or "no reason")
+async function sendWarningDm({ guild, target, reason }) {
+    try {
+        const reasonText = reason === DEFAULT_REASON ? 'no reason' : reason;
+
+        const embed = createEmbed({
+            title: '⚠️ You have been warned',
+            description: `You have been warned in **${guild.name}** for: **${reasonText}**`,
+            color: 'warning',
+            thumbnail: guild.iconURL?.({ size: 256 }) || null,
+            timestamp: true,
+        });
+
+        await target.send({ embeds: [embed] });
+        return true;
+    } catch (error) {
+        logger.debug(`Could not DM warning to ${target.id}: ${error.message}`);
+        return false;
+    }
+}
+
+// Red error box for the prefix command
+function errorBox(title, description) {
+    return createEmbed({
+        title: `❌ ${title}`,
+        description,
+        color: 'error',
     });
 }
