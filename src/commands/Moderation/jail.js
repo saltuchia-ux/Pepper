@@ -1,7 +1,10 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { createEmbed } from '../../utils/embeds.js';
+import { logger } from '../../utils/logger.js';
 
 const JAIL_INMATE_ROLE_ID = '1556347741846642698';
+const DEFAULT_REASON = 'No reason provided';
 
 export default {
     data: new SlashCommandBuilder()
@@ -137,7 +140,7 @@ async function jailUser(interaction, suppliedMember = null, suppliedReason = nul
     const reason =
         suppliedReason?.trim() ||
         interaction.options.getString('reason')?.trim() ||
-        'No reason provided';
+        DEFAULT_REASON;
 
     const targetMember =
         target.member || target;
@@ -205,10 +208,29 @@ async function jailUser(interaction, suppliedMember = null, suppliedReason = nul
             `Permanently jailed by ${interaction.user.tag}: ${reason}`
         );
 
+        // Tell the user in a DM (silently skipped if their DMs are closed)
+        await sendJailDm({
+            guild,
+            user: targetMember.user ?? targetMember,
+            reason,
+        });
+
+        const avatar = (targetMember.user ?? targetMember).displayAvatarURL?.({ size: 256 });
+
         return InteractionHelper.universalReply(interaction, {
-            content:
-                `🔒 ${targetMember} has been **jailed permanently**.\n` +
-                `📝 **Reason:** ${reason}`,
+            embeds: [
+                createEmbed({
+                    title: '🔒 Member Jailed',
+                    description: `${targetMember} has been **jailed permanently**.`,
+                    color: 'error',
+                    thumbnail: avatar || null,
+                    fields: [
+                        { name: '🛡️ Moderator', value: `${interaction.user}`, inline: true },
+                        { name: '📝 Reason', value: reason, inline: true },
+                    ],
+                    timestamp: true,
+                }),
+            ],
         });
 
     } catch (error) {
@@ -219,5 +241,27 @@ async function jailUser(interaction, suppliedMember = null, suppliedReason = nul
                 '❌ I could not jail that user. Check **Manage Roles** and the bot role hierarchy.',
             ephemeral: true,
         });
+    }
+}
+
+// DM sent to the jailed user:
+//   "You have been jailed in <server> for: <reason>"  (or "no reason")
+async function sendJailDm({ guild, user, reason }) {
+    try {
+        const reasonText = reason === DEFAULT_REASON ? 'no reason' : reason;
+
+        const embed = createEmbed({
+            title: '🔒 You have been jailed',
+            description: `You have been jailed in **${guild.name}** for: **${reasonText}**`,
+            color: 'error',
+            thumbnail: guild.iconURL?.({ size: 256 }) || null,
+            timestamp: true,
+        });
+
+        await user.send({ embeds: [embed] });
+        return true;
+    } catch (error) {
+        logger.debug(`Could not DM jail notice to ${user.id}: ${error.message}`);
+        return false;
     }
 }
