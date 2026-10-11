@@ -20,6 +20,28 @@ export default {
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
     category: "moderation",
 
+    async prefixExecute(interaction, config, client) {
+        const args = interaction.options._positional || [];
+        const match = (args[0] || '').match(/<@!?(\d{17,20})>|(\d{17,20})/);
+        const targetId = match?.[1] || match?.[2];
+        const reason = args.slice(1).join(' ').trim() || 'No reason provided';
+
+        if (!targetId) return interaction.reply('❌ Usage: `.ban @user or userID [reason]`');
+        if (targetId === interaction.user.id) return interaction.reply('❌ You cannot ban yourself.');
+        if (targetId === client.user.id) return interaction.reply('❌ You cannot ban the bot.');
+
+        const user = await client.users.fetch(targetId).catch(() => null);
+        if (!user) return interaction.reply('❌ Could not find that user. Check the ID.');
+
+        const result = await ModerationService.banUser({
+            guild: interaction.guild,
+            user,
+            moderator: interaction.member,
+            reason,
+        });
+        return interaction.reply(`🔨 Banned **${user.tag}**\nReason: ${reason}\nCase ID: #${result.caseId}`);
+    },
+
     async execute(interaction, config, client) {
         const user = interaction.options.getUser("target");
         const reason = interaction.options.getString("reason") || "No reason provided";
