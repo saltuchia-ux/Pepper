@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
+import { logModerationAction } from '../../utils/moderation.js';
 
 const JAIL_INMATE_ROLE_ID = '1556347741846642698';
 const DEFAULT_REASON = 'No reason provided';
@@ -207,6 +208,24 @@ async function jailUser(interaction, suppliedMember = null, suppliedReason = nul
             [JAIL_INMATE_ROLE_ID],
             `Permanently jailed by ${interaction.user.tag}: ${reason}`
         );
+
+        // Save this jail in the member history (shows up in .hs and .cases)
+        const jailedUser = targetMember.user ?? targetMember;
+
+        await logModerationAction({
+            client: guild.client,
+            guild,
+            event: {
+                action: 'Member Jailed',
+                target: `${jailedUser.tag} (${jailedUser.id})`,
+                executor: `${interaction.user.tag} (${interaction.user.id})`,
+                reason,
+                metadata: {
+                    userId: jailedUser.id,
+                    moderatorId: interaction.user.id,
+                },
+            },
+        }).catch((error) => logger.error('Could not save jail to history:', error));
 
         // Tell the user in a DM (silently skipped if their DMs are closed)
         await sendJailDm({
