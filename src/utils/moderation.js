@@ -4,6 +4,7 @@ import { logEvent as logAuditEvent, EVENT_TYPES } from '../services/loggingServi
 import { formatLogLine } from './logging/logEmbeds.js';
 import { logger } from './logger.js';
 import { getFromDb, setInDb } from './database.js';
+import { Mutex } from './mutex.js';
 
 const ACTION_TO_EVENT_TYPE = {
   'Member Banned': EVENT_TYPES.MODERATION_BAN,
@@ -168,6 +169,67 @@ export async function getModerationCases(guildId, filters = {}) {
   }
 }
 
+// ==========================================
+// MEMBER HISTORY (used by the .hs command)
+// Keeps up to MEMBER_HISTORY_LIMIT punishments for EACH person,
+// separate from the server-wide case list (which only keeps 1000 total).
+// ==========================================
+
+export const MEMBER_HISTORY_LIMIT = 1000;
+
+// Works out what kind of punishment an action name is.
+// It looks for words, so new commands work automatically as long as the
+// action name contains warn / kick / ban / timeout (or mute) / jail.
+// Returns 'warn' | 'timeout' | 'kick' | 'jail' | 'ban' | null (not a punishment)
+export function classifyPunishment(action) {
+  const text = String(action || '').toLowerCase();
+
+  // Things that undo or just look at a punishment are not punishments
+  if (/un(ban|mute|timeout|timedout|timed[\s_-]?out|jail|warn|kick)|free|release|remov|clear|delet|view|list|check|config|purge|lock|dm sent|case/.test(text)) {
+    return null;
+  }
+
+  if (text.includes('warn')) return 'warn';
+  if (text.includes('kick')) return 'kick';
+  if (text.includes('ban')) return 'ban';
+  if (/time[\s_-]?out|timed[\s_-]?out|mute/.test(text)) return 'timeout';
+  if (text.includes('jail')) return 'jail';
+
+  return null;
+}
+
+export async function addMemberHistory({ guildId, userId, entry }) {
+  const key = `moderation_history_${guildId}_${userId}`;
+
+  try {
+    await Mutex.runExclusive(key, async () => {
+      const list = await getFromDb(key, []);
+
+      list.push(entry);
+
+      if (list.length > MEMBER_HISTORY_LIMIT) {
+        list.splice(0, list.length - MEMBER_HISTORY_LIMIT);
+      }
+
+      await setInDb(key, list);
+    });
+
+    return true;
+  } catch (error) {
+    logger.error('Error saving member history:', error);
+    return false;
+  }
+}
+
+export async function getMemberHistory(guildId, userId) {
+  try {
+    return await getFromDb(`moderation_history_${guildId}_${userId}`, []);
+  } catch (error) {
+    logger.error('Error reading member history:', error);
+    return [];
+  }
+}
+
 export async function logModerationAction({ client, guild, event }) {
   const caseId = await generateCaseId(client, guild.id);
   
@@ -185,6 +247,26 @@ export async function logModerationAction({ client, guild, event }) {
       moderatorId: event.metadata?.moderatorId
     }
   });
+
+  // Also keep it in the person's own history (500+ entries per person)
+  const historyUserId = event.metadata?.userId;
+
+  if (historyUserId && classifyPunishment(event.action)) {
+    await addMemberHistory({
+      guildId: guild.id,
+      userId: historyUserId,
+      entry: {
+        caseId,
+        action: event.action,
+        reason: event.reason,
+        duration: event.duration,
+        executor: event.executor,
+        moderatorId: event.metadata?.moderatorId,
+        targetUserId: historyUserId,
+        createdAt: new Date().toISOString()
+      }
+    });
+  }
   
   await logEvent({
     client,
