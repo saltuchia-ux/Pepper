@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { takeUserFromWords } from '../../utils/userResolver.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 const JAIL_INMATE_ROLE_ID = '1556347741846642698';
@@ -40,26 +41,25 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const userId = extractUserId(parts[0]);
+        const target = await takeUserFromWords(guild, parts);
 
-        if (!userId) {
+        if (!target) {
             return InteractionHelper.universalReply(interaction, {
                 content:
-                    '❌ User not found. Use `.freejail @user` or `.freejail userID`.',
+                    '❌ User not found. Use `.freejail @user`, `.freejail userID` or `.freejail username`.\n' +
+                    'Names with spaces go in quotes: `.freejail "John Smith"`.',
                 ephemeral: true,
             });
         }
 
-        const member = await guild.members.fetch(userId).catch(() => null);
-
-        if (!member) {
+        if (!target.member) {
             return InteractionHelper.universalReply(interaction, {
                 content: '❌ I could not find that member in this server.',
                 ephemeral: true,
             });
         }
 
-        return freeJail(interaction, member);
+        return freeJail(interaction, target.member);
     },
 };
 

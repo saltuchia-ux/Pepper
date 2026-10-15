@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { takeUserFromWords } from '../../utils/userResolver.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -111,14 +112,15 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const userId = extractUserId(parts[0]);
+        const target = await takeUserFromWords(guild, parts);
 
-        if (!userId) {
+        if (!target) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [
                     errorBox(
                         'User not found',
-                        'Use `.timeout @user 10m reason` or `.timeout userID 1 hour reason`.\n' +
+                        'Use `.timeout @user 10m reason`, `.timeout userID 1 hour reason` or `.timeout username 5min reason`.\n' +
+                        'Names with spaces go in quotes: `.timeout "John Smith" 10m reason`.\n' +
                         'Time: `5min`, `10 minutes`, `2h`, `1 hour`, `3d`, `1 day`, `1w`, `1 week`.\n' +
                         `The time and the reason are optional (default time: ${DEFAULT_TIMEOUT_MINUTES} minutes).`
                     ),
@@ -127,28 +129,26 @@ export default {
             });
         }
 
-        const member = await guild.members.fetch(userId).catch(() => null);
-
-        if (!member) {
+        if (!target.member) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [
                     errorBox(
                         'Member not found',
-                        'I could not find that member in this server. Check the ID and make sure they have not left.'
+                        'I could not find that member in this server. Check the name or ID and make sure they have not left.'
                     ),
                 ],
                 ephemeral: true,
             });
         }
 
-        const rest = parts.slice(1);
+        const rest = parts.slice(target.used);
         const parsed = parseDuration(rest);
 
         const minutes = parsed ? parsed.minutes : DEFAULT_TIMEOUT_MINUTES;
         const reasonWords = parsed ? rest.slice(parsed.used) : rest;
         const reason = reasonWords.join(' ') || DEFAULT_REASON;
 
-        return timeoutMember(interaction, client, member.user, member, minutes, reason, !parsed);
+        return timeoutMember(interaction, client, target.member.user, target.member, minutes, reason, !parsed);
     },
 };
 

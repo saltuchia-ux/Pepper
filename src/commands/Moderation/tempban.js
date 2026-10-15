@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { takeUserFromWords } from '../../utils/userResolver.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
@@ -93,20 +94,21 @@ export default {
             .filter(Boolean);
 
         const usage =
-            'Use `.tempban @user 3 days reason` or `.tempban userID 1w reason`.\n' +
+            'Use `.tempban @user 3 days reason`, `.tempban userID 1w reason` or `.tempban username 2d reason`.\n' +
+            'Names with spaces go in quotes: `.tempban "John Smith" 3d reason`.\n' +
             'Time: `5min`, `10 minutes`, `2h`, `1 hour`, `3d`, `1 day`, `1w`, `1 week`.\n' +
             'The time is needed, the reason is optional.';
 
-        const userId = extractUserId(parts[0]);
+        const target = await takeUserFromWords(guild, parts);
 
-        if (!userId) {
+        if (!target) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [errorBox('User not found', usage)],
                 ephemeral: true,
             });
         }
 
-        const rest = parts.slice(1);
+        const rest = parts.slice(target.used);
         const parsed = parseDuration(rest);
 
         if (!parsed) {
@@ -116,9 +118,11 @@ export default {
             });
         }
 
-        // Works with a user ID even if the person is not in the server
+        // A user ID works even if the person is not in the server
         const discordClient = client ?? interaction.client;
-        const user = await discordClient.users.fetch(userId).catch(() => null);
+        const user =
+            target.member?.user ??
+            await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
             return InteractionHelper.universalReply(interaction, {

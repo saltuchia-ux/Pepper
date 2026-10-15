@@ -8,6 +8,7 @@ import {
     MessageFlags,
 } from 'discord.js';
 import { createEmbed } from '../../utils/embeds.js';
+import { takeUserFromWords } from '../../utils/userResolver.js';
 import {
     getModerationCases,
     getMemberHistory,
@@ -74,14 +75,15 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const userId = extractUserId(parts[0]);
+        const target = await takeUserFromWords(interaction.guild, parts);
 
-        if (!userId) {
+        if (!target) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [
                     errorBox(
                         'User not found',
-                        'Use `.hs @user` or `.hs userID`.\n' +
+                        'Use `.hs @user`, `.hs userID` or `.hs username`.\n' +
+                        'Names with spaces go in quotes: `.hs "John Smith"`.\n' +
                         'Example: `.hs 123456789012345678`'
                     ),
                 ],
@@ -89,9 +91,11 @@ export default {
             });
         }
 
-        // Works even if the person already left or was banned
+        // Works even if the person already left or was banned (use their ID)
         const discordClient = client ?? interaction.client;
-        const user = await discordClient.users.fetch(userId).catch(() => null);
+        const user =
+            target.member?.user ??
+            await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
             return InteractionHelper.universalReply(interaction, {
@@ -100,7 +104,8 @@ export default {
             });
         }
 
-        const page = /^\d+$/.test(parts[1] || '') ? parseInt(parts[1], 10) : 1;
+        const pageWord = parts[target.used] || '';
+        const page = /^\d+$/.test(pageWord) ? parseInt(pageWord, 10) : 1;
 
         return showHistory(interaction, user, page);
     },

@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { takeUserFromEnd } from '../../utils/userResolver.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 export default {
@@ -17,7 +18,7 @@ export default {
                 .setDescription('User to give the role to')
                 .setRequired(true)
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 
     category: 'Moderation',
 
@@ -40,25 +41,39 @@ export default {
             });
         }
 
-        const raw = getPrefixText(interaction, 'grole');
-        const { roleText, userText } = splitRoleAndUser(raw);
+        const words = getPrefixText(interaction, 'grole')
+            .split(/\s+/)
+            .filter(Boolean);
 
-        if (!roleText) {
+        const usage =
+            '❌ Usage: `.grole role name user`\n' +
+            'The user goes **last**: @mention, user ID, username or display name.\n' +
+            'Example: `.grole cool kids bob`\n' +
+            'Names with spaces go in quotes: `.grole cool kids "John Smith"`';
+
+        if (words.length < 2) {
             return InteractionHelper.universalReply(interaction, {
-                content:
-                    '❌ Usage: `.grole role name (user id or @user)`\n' +
-                    'Example: `.grole cool kids @User`',
+                content: usage,
                 ephemeral: true,
             });
         }
 
-        const userId = extractUserId(userText);
+        const target = await takeUserFromEnd(guild, words);
 
-        if (!userId) {
+        if (!target || !target.member) {
             return InteractionHelper.universalReply(interaction, {
                 content:
-                    '❌ User not found. Put the user **last**, as an @mention or a user ID.\n' +
-                    'Example: `.grole cool kids @User`',
+                    '❌ I could not find that user in this server.\n' +
+                    'Put the user **last**, as an @mention, user ID, username or display name.',
+                ephemeral: true,
+            });
+        }
+
+        const roleText = words.slice(0, words.length - target.used).join(' ').trim();
+
+        if (!roleText) {
+            return InteractionHelper.universalReply(interaction, {
+                content: usage,
                 ephemeral: true,
             });
         }
@@ -72,16 +87,7 @@ export default {
             });
         }
 
-        const target = await guild.members.fetch(userId).catch(() => null);
-
-        if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ I could not find that user in this server.',
-                ephemeral: true,
-            });
-        }
-
-        return giveRole(interaction, role, target);
+        return giveRole(interaction, role, target.member);
     },
 };
 
@@ -253,9 +259,9 @@ async function findRole(guild, text) {
 }
 
 async function giveRole(interaction, suppliedRole = null, suppliedTarget = null) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
         return InteractionHelper.universalReply(interaction, {
-            content: '❌ You need **Ban Members** permission to use `.grole`.',
+            content: '❌ You need **Manage Roles** permission to use `.grole`.',
             ephemeral: true,
         });
     }

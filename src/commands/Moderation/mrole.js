@@ -28,7 +28,7 @@ export default {
                 .setRequired(false)
         )
         .setDefaultMemberPermissions(
-            PermissionFlagsBits.BanMembers
+            PermissionFlagsBits.ManageRoles
         ),
 
     category: 'Moderation',
@@ -94,8 +94,8 @@ async function createRole(interaction, isPrefix) {
         });
 
     // BAN MEMBERS PERMISSION
-    if (!interaction.member?.permissions.has(PermissionFlagsBits.BanMembers)) {
-        return reply('❌ You need **Ban Members** permission to use `.mrole`.');
+    if (!interaction.member?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return reply('❌ You need **Manage Roles** permission to use `.mrole`.');
     }
 
     const guild = interaction.guild;

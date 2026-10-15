@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { takeUserFromWords } from '../../utils/userResolver.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
@@ -69,16 +70,16 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const userId = extractUserId(parts[0]);
+        const target = await takeUserFromWords(guild, parts);
 
-        if (!userId) {
+        if (!target) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [
                     errorBox(
                         'User not found',
-                        'Use `.ban @user reason` or `.ban userID reason`.\n' +
-                        'The reason is optional.\n' +
-                        'Example: `.ban 123456789012345678 raiding`\n' +
+                        'Use `.ban @user reason`, `.ban userID reason` or `.ban username reason`.\n' +
+                        'Names with spaces go in quotes: `.ban "John Smith" reason`.\n' +
+                        'The reason is optional. A name only works for people in the server, a user ID works for anyone.\n' +
                         'For a temporary ban use `.tempban userID 3 days reason`.'
                     ),
                 ],
@@ -86,9 +87,11 @@ export default {
             });
         }
 
-        // Works with a user ID even if the person is not in the server
+        // A user ID works even if the person is not in the server
         const discordClient = client ?? interaction.client;
-        const user = await discordClient.users.fetch(userId).catch(() => null);
+        const user =
+            target.member?.user ??
+            await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
             return InteractionHelper.universalReply(interaction, {
@@ -97,7 +100,7 @@ export default {
             });
         }
 
-        const reason = parts.slice(1).join(' ') || DEFAULT_REASON;
+        const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
 
         return banUser(interaction, client, user, reason);
     },

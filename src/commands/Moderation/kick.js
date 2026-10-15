@@ -1,4 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { takeUserFromWords } from '../../utils/userResolver.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
@@ -72,39 +73,37 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const userId = extractUserId(parts[0]);
+        const target = await takeUserFromWords(guild, parts);
 
-        if (!userId) {
+        if (!target) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [
                     errorBox(
                         'User not found',
-                        'Use `.kick @user reason` or `.kick userID reason`.\n' +
-                        'The reason is optional.\n' +
-                        'Example: `.kick 123456789012345678 spamming`'
+                        'Use `.kick @user reason`, `.kick userID reason` or `.kick username reason`.\n' +
+                        'Names with spaces go in quotes: `.kick "John Smith" reason`.\n' +
+                        'The reason is optional.'
                     ),
                 ],
                 ephemeral: true,
             });
         }
 
-        const member = await guild.members.fetch(userId).catch(() => null);
-
-        if (!member) {
+        if (!target.member) {
             return InteractionHelper.universalReply(interaction, {
                 embeds: [
                     errorBox(
                         'Member not found',
-                        'I could not find that member in this server. Check the ID and make sure they have not left.'
+                        'I could not find that member in this server. Check the name or ID and make sure they have not left.'
                     ),
                 ],
                 ephemeral: true,
             });
         }
 
-        const reason = parts.slice(1).join(' ') || DEFAULT_REASON;
+        const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
 
-        return kickMember(interaction, client, member.user, member, reason);
+        return kickMember(interaction, client, target.member.user, target.member, reason);
     },
 };
 
