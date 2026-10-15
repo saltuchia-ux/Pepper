@@ -172,11 +172,14 @@ async function handlePrefixCommand(
       return;
     }
 
+    // Words are split by spaces, but "John Smith" in quotes stays one word
     const parts =
-      message.content
-        .slice(prefix.length)
-        .trim()
-        .split(/\s+/);
+      (message.content.slice(prefix.length).trim().match(/"[^"]*"|\S+/g) || [])
+        .map((word) =>
+          word.length > 1 && word.startsWith('"') && word.endsWith('"')
+            ? word.slice(1, -1)
+            : word
+        );
 
     const commandName =
       parts.shift()?.toLowerCase();
