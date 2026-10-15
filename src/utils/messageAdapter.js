@@ -1,6 +1,7 @@
 // messageAdapter.js
 
 import { mapArgumentsToOptions } from './prefixParser.js';
+import { resolveUserArguments } from './userResolver.js';
 import { createEmbed } from './embeds.js';
 import { handleInteractionError } from './errorHandler.js';
 import { logger } from './logger.js';
@@ -189,6 +190,9 @@ export function supportsPrefixExecution(command) {
 }
 
 export async function executePrefixCommand(command, message, args, client, prefixOverride = null, guildConfig = null) {
+  // Turns a typed username / display name into a mention, so every command accepts names
+  args = await resolveUserArguments(message, command.data, args);
+
   const mockInteraction = createMockInteraction(message, command.data, args);
   const coordinator = mockInteraction._responseCoordinator;
   const prefix = prefixOverride || getCommandPrefix();
