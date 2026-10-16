@@ -230,6 +230,53 @@ export async function getMemberHistory(guildId, userId) {
   }
 }
 
+// ==========================================
+// MODERATOR STATS (used by the .ms command)
+// Remembers every action a moderator did (warn, kick, ban, unban, timeout, jail).
+// Keeps up to MODERATOR_ACTION_LIMIT actions per moderator.
+// ==========================================
+
+export const MODERATOR_ACTION_LIMIT = 5000;
+
+// 'warn' | 'kick' | 'ban' | 'unban' | 'timeout' | 'jail' | null
+export function statCategory(action) {
+  if (/unban/i.test(String(action || ''))) return 'unban';
+
+  return classifyPunishment(action);
+}
+
+export async function addModeratorAction({ guildId, moderatorId, entry }) {
+  const key = `moderation_actions_${guildId}_${moderatorId}`;
+
+  try {
+    await Mutex.runExclusive(key, async () => {
+      const list = await getFromDb(key, []);
+
+      list.push(entry);
+
+      if (list.length > MODERATOR_ACTION_LIMIT) {
+        list.splice(0, list.length - MODERATOR_ACTION_LIMIT);
+      }
+
+      await setInDb(key, list);
+    });
+
+    return true;
+  } catch (error) {
+    logger.error('Error saving moderator action:', error);
+    return false;
+  }
+}
+
+export async function getModeratorActions(guildId, moderatorId) {
+  try {
+    return await getFromDb(`moderation_actions_${guildId}_${moderatorId}`, []);
+  } catch (error) {
+    logger.error('Error reading moderator actions:', error);
+    return [];
+  }
+}
+
 export async function logModerationAction({ client, guild, event }) {
   const caseId = await generateCaseId(client, guild.id);
   
@@ -268,6 +315,22 @@ export async function logModerationAction({ client, guild, event }) {
     });
   }
   
+  // Count it in the moderator's own stats (.ms)
+  const statModeratorId = event.metadata?.moderatorId;
+  const statType = statCategory(event.action);
+
+  if (statModeratorId && statType) {
+    await addModeratorAction({
+      guildId: guild.id,
+      moderatorId: statModeratorId,
+      entry: {
+        caseId,
+        type: statType,
+        createdAt: new Date().toISOString()
+      }
+    });
+  }
+
   await logEvent({
     client,
     guild,
