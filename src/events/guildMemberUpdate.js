@@ -35,6 +35,7 @@ export default {
 
         return;
       }
+
     } catch (error) {
       logger.error('Error in guildMemberUpdate event:', error);
     }
