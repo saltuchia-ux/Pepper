@@ -37,12 +37,17 @@ export async function enforceForcedNick(member) {
 }
 
 // Shared permission checks for .nick and .fn
-export function assertCanChangeNick(interaction, member) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageNicknames)) {
+export function assertCanChangeNick(
+    interaction,
+    member,
+    requiredPermission = PermissionFlagsBits.ManageNicknames,
+    permissionName = 'Manage Nicknames',
+) {
+    if (!interaction.member.permissions.has(requiredPermission)) {
         throw new TitanBotError(
-            'Missing Manage Nicknames permission',
+            `Missing ${permissionName} permission`,
             ErrorTypes.PERMISSION,
-            'You need the **Manage Nicknames** permission to use this command.',
+            `You need the **${permissionName}** permission to use this command.`,
         );
     }
 
