@@ -27,7 +27,7 @@ export default {
                 .setMaxLength(MAX_NICK_LENGTH)
                 .setRequired(false),
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageNicknames),
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
     category: 'moderation',
 
     // /fn target:@user nickname:Bob
@@ -41,7 +41,7 @@ export default {
         return toggleForcedNick(interaction, member, nickname);
     },
 
-    // .fn @user New Name (set) | .fn @user (remove)
+    // .fn @user New Name   (set)     .fn @user   (remove)
     async prefixExecute(interaction, config, client) {
         const guild = interaction.guild;
 
@@ -76,7 +76,7 @@ export default {
 };
 
 async function toggleForcedNick(interaction, member, nickname) {
-    assertCanChangeNick(interaction, member);
+    assertCanChangeNick(interaction, member, PermissionFlagsBits.BanMembers, 'Ban Members');
 
     const guildId = interaction.guild.id;
     const existing = await getForcedNick(guildId, member.id);

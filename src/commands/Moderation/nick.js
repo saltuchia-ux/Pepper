@@ -39,7 +39,7 @@ export default {
         return changeNick(interaction, member, nickname);
     },
 
-    // .nick @user New Name | .nick userID New Name | .nick username New Name
+    // .nick @user New Name   |   .nick userID New Name   |   .nick username New Name
     async prefixExecute(interaction, config, client) {
         const guild = interaction.guild;
 
