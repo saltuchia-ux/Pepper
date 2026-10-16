@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
+import { enforceForcedNick } from '../utils/forcedNick.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -9,6 +10,10 @@ export default {
   async execute(oldMember, newMember) {
     try {
       if (!newMember.guild) return;
+
+      if (oldMember.nickname !== newMember.nickname) {
+        await enforceForcedNick(newMember);
+      }
 
       if (oldMember.nickname !== newMember.nickname) {
         await logEvent({
@@ -30,7 +35,6 @@ export default {
 
         return;
       }
-
     } catch (error) {
       logger.error('Error in guildMemberUpdate event:', error);
     }
