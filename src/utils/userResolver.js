@@ -206,6 +206,120 @@ export async function takeUserFromEnd(guild, words) {
     return member ? { id: member.id, member, used: 1 } : null;
 }
 
+
+// ==========================================
+// BANNED USERS  (for .unban)
+// A banned person is not in the server, so the ban list is searched instead.
+// Works with an @mention / user ID, or a username.
+// ==========================================
+function bannedNamesOf(user) {
+    return [user.username, user.globalName]
+        .filter(Boolean)
+        .map((name) => String(name).toLowerCase());
+}
+
+function bannedScore(user, query) {
+    const names = bannedNamesOf(user);
+
+    if (names.some((name) => name === query)) return 0;
+    if (names.some((name) => name.startsWith(query))) return 1;
+    if (names.some((name) => name.includes(query))) return 2;
+
+    return null;
+}
+
+function closestBanned(users, text, exactOnly) {
+    const query = String(text || '').trim().toLowerCase();
+
+    if (!query) return null;
+
+    let best = null;
+    let bestScore = Infinity;
+    let bestLength = Infinity;
+
+    for (const user of users) {
+        const score = bannedScore(user, query);
+
+        if (score === null) continue;
+        if (exactOnly && score !== 0) continue;
+
+        const length = Math.min(...bannedNamesOf(user).map((name) => name.length));
+
+        if (score < bestScore || (score === bestScore && length < bestLength)) {
+            best = user;
+            bestScore = score;
+            bestLength = length;
+        }
+    }
+
+    return best;
+}
+
+// Finds a banned user from one piece of text (ID, mention, or username).
+export async function findBannedUser(guild, text) {
+    const clean = String(text || '').trim().replace(/^["']|["']$/g, '');
+
+    if (!clean) return null;
+
+    const id = extractUserId(clean);
+
+    if (id) {
+        return guild.client.users.fetch(id).catch(() => null);
+    }
+
+    const bans = await guild.bans.fetch().catch(() => null);
+
+    if (!bans) return null;
+
+    return closestBanned([...bans.values()].map((ban) => ban.user), clean, false);
+}
+
+// Reads ONE banned user from the start of the words.
+// Returns { user, used } or null.
+export async function takeBannedUserFromWords(guild, words) {
+    if (!guild || !words?.length) return null;
+
+    const first = words[0];
+
+    // "John Smith" in quotes
+    if (/^["']/.test(first)) {
+        const quote = first[0];
+
+        for (let i = 0; i < words.length; i++) {
+            const closes = words[i].endsWith(quote) && (i > 0 || words[i].length > 1);
+
+            if (closes) {
+                const user = await findBannedUser(guild, words.slice(0, i + 1).join(' '));
+                return user ? { user, used: i + 1 } : null;
+            }
+        }
+
+        return null;
+    }
+
+    if (extractUserId(first)) {
+        const user = await findBannedUser(guild, first);
+        return user ? { user, used: 1 } : null;
+    }
+
+    const bans = await guild.bans.fetch().catch(() => null);
+
+    if (!bans) return null;
+
+    const users = [...bans.values()].map((ban) => ban.user);
+
+    // A name with spaces: only when the whole name matches exactly
+    for (let count = Math.min(MAX_NAME_WORDS, words.length); count >= 2; count--) {
+        const user = closestBanned(users, words.slice(0, count).join(' '), true);
+
+        if (user) return { user, used: count };
+    }
+
+    const user = closestBanned(users, first, false);
+
+    return user ? { user, used: 1 } : null;
+}
+
 // ==========================================
 // FOR EVERY OTHER COMMAND
 // Before a prefix command runs, any "user" option that was typed as a name is

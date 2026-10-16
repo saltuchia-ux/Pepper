@@ -252,3 +252,31 @@ export function buildBanDm({ guild, reason, minutes, inviteUrl }) {
         timestamp: true,
     });
 }
+
+export function buildUnmuteDm({ guild, reason }) {
+    return createEmbed({
+        title: '🔊 You have been unmuted',
+        description: `Your timeout in **${guild.name}** has been removed. You can talk again.`,
+        color: 'success',
+        thumbnail: guild.iconURL?.({ size: 256 }) || null,
+        fields: [{ name: '📝 Reason', value: shownReason(reason) }],
+        timestamp: true,
+    });
+}
+
+export function buildUnbanDm({ guild, reason, inviteUrl }) {
+    const fields = [{ name: '📝 Reason', value: shownReason(reason) }];
+
+    if (inviteUrl) {
+        fields.push({ name: '🔗 Join back', value: `You can come back with this link:\n${inviteUrl}` });
+    }
+
+    return createEmbed({
+        title: '✅ You have been unbanned',
+        description: `You have been unbanned from **${guild.name}**.`,
+        color: 'success',
+        thumbnail: guild.iconURL?.({ size: 256 }) || null,
+        fields,
+        timestamp: true,
+    });
+}
