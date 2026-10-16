@@ -38,8 +38,8 @@ export default {
         .addUserOption((o) =>
             o
                 .setName('user')
-                .setDescription('The member to check')
-                .setRequired(true),
+                .setDescription('The member to check (leave empty for your own history)')
+                .setRequired(false),
         )
         .addIntegerOption((o) =>
             o
@@ -56,7 +56,7 @@ export default {
         const deferSuccess = await InteractionHelper.safeDefer(interaction);
         if (!deferSuccess) return;
 
-        const user = interaction.options.getUser('user');
+        const user = interaction.options.getUser('user') ?? interaction.user;
         const page = interaction.options.getInteger('page') || 1;
 
         return showHistory(interaction, user, page);
@@ -75,6 +75,13 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
+        // Just ".hs" (or ".hs 2" for page 2) shows YOUR OWN history
+        if (!parts.length || /^\d{1,6}$/.test(parts[0])) {
+            const ownPage = parts.length ? parseInt(parts[0], 10) : 1;
+
+            return showHistory(interaction, interaction.user, ownPage);
+        }
+
         const target = await takeUserFromWords(interaction.guild, parts);
 
         if (!target) {
@@ -82,7 +89,7 @@ export default {
                 embeds: [
                     errorBox(
                         'User not found',
-                        'Use `.hs @user`, `.hs userID` or `.hs username`.\n' +
+                        'Use `.hs` for your own history, or `.hs @user`, `.hs userID` or `.hs username` for someone else.\n' +
                         'Names with spaces go in quotes: `.hs "John Smith"`.\n' +
                         'Example: `.hs 123456789012345678`'
                     ),
@@ -267,13 +274,15 @@ async function showHistory(interaction, user, requestedPage = 1) {
 
     const avatar = user.displayAvatarURL?.({ size: 256 });
     const header = `**${user.tag ?? user.username}** (\`${user.id}\`)`;
+    const isSelf = user.id === interaction.user.id;
+    const title = isSelf ? '📋 Your Moderation History' : '📋 Moderation History';
 
     if (!entries.length) {
         return sendReply(interaction, {
             embeds: [
                 createEmbed({
-                    title: '📋 Moderation History',
-                    description: `${header}\n\n✅ No punishments on record. This member has a clean history.`,
+                    title,
+                    description: `${header}\n\n${isSelf ? '✅ You have no punishments on record. Your history is clean.' : '✅ No punishments on record. This member has a clean history.'}`,
                     color: 'success',
                     thumbnail: avatar || null,
                     timestamp: true,
@@ -297,7 +306,7 @@ async function showHistory(interaction, user, requestedPage = 1) {
         const pageEntries = entries.slice(start, start + ENTRIES_PER_PAGE);
 
         return createEmbed({
-            title: '📋 Moderation History',
+            title,
             description:
                 `${header}\n${summary}\n\n` +
                 pageEntries.map(formatEntry).join('\n\n'),
