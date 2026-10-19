@@ -1,5 +1,4 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { createEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { clearSnipes } from '../../services/snipeService.js';
@@ -32,18 +31,23 @@ async function clearHistory(interaction) {
         );
     }
 
-    const { deleted, edited } = clearSnipes(interaction.channel.id);
+    clearSnipes(interaction.channel.id);
 
+    // Typed as .cs: the bot just reacts to the message with a check mark
+    const original = interaction.message ?? interaction._responseCoordinator?.message ?? null;
+
+    if (original?.react) {
+        try {
+            await original.react('✅');
+            return;
+        } catch (error) {
+            // The bot cannot react here (no Add Reactions permission), so answer instead
+        }
+    }
+
+    // Slash command (there is no message to react to) or the reaction failed
     return InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: '🧹 Snipe cleared',
-                description:
-                    `Removed **${deleted}** deleted and **${edited}** edited message${deleted + edited === 1 ? '' : 's'} ` +
-                    `from ${interaction.channel}.`,
-                color: 'success',
-                timestamp: true,
-            }),
-        ],
+        content: '✅ Snipe history cleared.',
+        ephemeral: true,
     });
 }
