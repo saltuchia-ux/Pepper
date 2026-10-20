@@ -14,7 +14,9 @@ export default {
             const config = await getJailConfig(channel.guild.id);
 
             if (!config?.roleId) return;
-            if (jailChannelIds(config).includes(channel.id)) return;
+
+            // the jail category and everything inside it (tickets) is handled by the jail system itself
+            if (jailChannelIds(config).includes(channel.id) || channel.parentId === config.categoryId) return;
 
             const role = channel.guild.roles.cache.get(config.roleId);
 
