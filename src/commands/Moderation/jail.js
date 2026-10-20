@@ -13,6 +13,8 @@ import {
     backupableRoleIds,
     buildJailDm,
     writeJailLog,
+    panelChannelIdOf,
+    saveJailRecord,
 } from '../../services/jailService.js';
 
 const MAX_REASON_LENGTH = 500;
@@ -185,28 +187,19 @@ async function jailMember(interaction, member, reason) {
         },
     }).catch(() => {});
 
-    // 5) tell them: DM, jail chat, staff log
-    await sendPunishmentDm(member.user, buildJailDm({ guild, reason }));
+    // 5) tell them: DM and the staff log (they open a ticket themselves to talk)
+    // what the staff should see inside the person's ticket later
+    await saveJailRecord(guild.id, member.id, {
+        reason,
+        moderatorId: interaction.user.id,
+        at: Date.now(),
+    });
 
-    const chat = guild.channels.cache.get(config.chatChannelId);
+    await sendPunishmentDm(
+        member.user,
+        buildJailDm({ guild, reason, panelChannelId: panelChannelIdOf(config) }),
+    );
 
-    if (chat) {
-        await chat
-            .send({
-                content: `${member}`,
-                embeds: [
-                    createEmbed({
-                        title: 'You are in jail',
-                        description:
-                            `Reason: **${reason === DEFAULT_REASON ? 'no reason given' : reason}**\n` +
-                            'A moderator will talk to you here.',
-                        color: 'error',
-                    }),
-                ],
-                allowedMentions: { users: [member.id] },
-            })
-            .catch(() => {});
-    }
 
     await writeJailLog(guild, config, {
         title: 'Member jailed',
@@ -228,7 +221,7 @@ async function jailMember(interaction, member, reason) {
                 fields: [
                     { name: 'Moderator', value: `${interaction.user}`, inline: true },
                     { name: 'Reason', value: reason, inline: true },
-                    { name: 'Roles saved', value: 'For 2 hours. Use `.restore` to give them back.' },
+                    { name: 'Roles saved', value: 'For 2 hours. Use `.role restore` to give them back.' },
                 ],
             }),
         ],

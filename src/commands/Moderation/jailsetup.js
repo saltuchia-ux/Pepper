@@ -8,7 +8,7 @@ import { getJailConfig, setupJail } from '../../services/jailService.js';
 export default {
     data: new SlashCommandBuilder()
         .setName('jailsetup')
-        .setDescription('Set up the jail system (role, jail category, jail chat, log channel)')
+        .setDescription('Set up the jail system (role, jail category, ticket channel, log channel)')
         .addStringOption((option) =>
             option
                 .setName('action')
@@ -73,7 +73,7 @@ async function run(interaction, action, isSlash) {
                     description:
                         `**Role:** ${mention(config.roleId, 'role')}\n` +
                         `**Category:** ${mention(config.categoryId)}\n` +
-                        `**Jail chat:** ${mention(config.chatChannelId)}\n` +
+                        `**Ticket channel:** ${mention(config.panelChannelId ?? config.chatChannelId)}\n` +
                         `**Staff log:** ${mention(config.logChannelId)}\n\n` +
                         'Run `.jailsetup` again to repair it or to include new staff roles.',
                     color: 'primary',
@@ -93,20 +93,21 @@ async function run(interaction, action, isSlash) {
         });
     }
 
-    const { role, category, chat, logs, staffRoles, result } = await setupJail(guild, {
+    const { role, category, panel, logs, staffRoles, result } = await setupJail(guild, {
         setupBy: interaction.user.id,
     });
 
     const lines = [
         `**Role:** ${role} ${result.createdRole ? '(created)' : '(already existed)'}`,
         `**Category:** ${category} ${result.createdCategory ? '(created)' : '(already existed)'}`,
-        `**Jail chat:** ${chat} ${result.createdChat ? '(created)' : '(already existed)'}`,
+        `**Ticket channel:** ${panel} ${result.createdPanel ? '(created)' : result.convertedOldChat ? '(your old jail chat was turned into the ticket channel)' : '(already existed)'}`,
         `**Staff log:** ${logs} ${result.createdLogs ? '(created)' : '(already existed)'}`,
-        `**Hidden from jailed people:** ${result.locked + result.alreadyLocked} channels` +
+        `**Hidden from jailed people:** ${result.locked + result.alreadyLocked} channels and voice channels` +
             (result.failed ? ` (${result.failed} could not be changed, check my permissions there)` : ''),
         `**Staff who can see the jail:** ${staffRoles.length ? staffRoles.map((r) => r.toString()).join(' ') : 'only administrators'}`,
         '',
-        'Now use `.jail @user reason`, `.unjail @user` and `.restore @user`.',
+        'Jailed people press **Open Ticket** in the ticket channel to talk to a moderator.',
+        'Now use `.jail @user reason`, `.unjail @user` and `.role restore @user`.',
     ];
 
     const embed = createEmbed({

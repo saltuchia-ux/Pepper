@@ -11,6 +11,8 @@ import {
     requireJail,
     buildUnjailDm,
     writeJailLog,
+    closeJailTicket,
+    clearJailRecord,
 } from '../../services/jailService.js';
 
 const MAX_REASON_LENGTH = 500;
@@ -150,6 +152,14 @@ async function unjailMember(interaction, member, reason) {
 
     await sendPunishmentDm(member.user, buildUnjailDm({ guild, reason }));
 
+    // their jail ticket is not needed anymore
+    const ticketClosed = await closeJailTicket(guild, member.id, {
+        closedBy: `${interaction.user}`,
+        reason: 'The person was let out of jail',
+    });
+
+    await clearJailRecord(guild.id, member.id);
+
     await writeJailLog(guild, config, {
         title: 'Member let out of jail',
         description:
@@ -164,6 +174,10 @@ async function unjailMember(interaction, member, reason) {
         { name: 'Reason', value: reason, inline: true },
     ];
 
+    if (ticketClosed) {
+        fields.push({ name: 'Ticket', value: 'Their jail ticket was closed.' });
+    }
+
     // Their old roles are NOT given back here, but they may still be saved
     const backup = await getRoleBackup(guild.id, member.id);
 
@@ -172,7 +186,7 @@ async function unjailMember(interaction, member, reason) {
             name: 'Old roles',
             value:
                 `Saved for ${backupMinutesLeft(backup)} more minutes. ` +
-                'Someone with the **Ban Members** permission can give them back with `.restore`.',
+                'Someone with the **Ban Members** permission can give them back with `.role restore`.',
         });
     }
 
