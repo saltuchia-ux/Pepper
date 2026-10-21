@@ -24,6 +24,7 @@ export const DEFAULT_REASON = 'No reason provided';
 
 const JAIL_ROLE_NAME = 'Jailed';
 const CATEGORY_NAME = 'Jail';
+const TICKETS_CATEGORY_NAME = 'Jail Tickets';
 const PANEL_NAME = 'jail-ticket';
 const OLD_CHAT_NAME = 'jail-chat';   // the old setup made this, it is turned into the ticket channel
 const LOGS_NAME = 'jail-logs';
@@ -57,7 +58,16 @@ export function panelChannelIdOf(config) {
 
 // The ids of the things the setup made (the category, the ticket channel, the log channel)
 export function jailChannelIds(config) {
-    return [config?.categoryId, panelChannelIdOf(config), config?.logChannelId].filter(Boolean);
+    return [config?.categoryId, config?.ticketCategoryId, panelChannelIdOf(config), config?.logChannelId].filter(Boolean);
+}
+
+// true for the two jail categories and everything inside them
+export function isJailArea(config, channel) {
+    return (
+        jailChannelIds(config).includes(channel.id) ||
+        channel.parentId === config?.categoryId ||
+        channel.parentId === config?.ticketCategoryId
+    );
 }
 
 // Gets the Jailed role, or tells the moderator that the setup was not done yet
@@ -100,6 +110,69 @@ export function getStaffRoles(guild, jailRole) {
             (role.permissions.has(PermissionFlagsBits.Administrator) ||
                 role.permissions.has(PermissionFlagsBits.ModerateMembers)),
     );
+}
+
+
+// ==========================================
+// ROLES THAT ARE PINGED WHEN A TICKET OPENS
+// Found by name: Manager, Mod, Trial Mod, Head Mod (also Moderator, Head Moderator ...).
+// You can pick other roles with  .jailsetup ping @role @role
+// ==========================================
+
+const PING_ROLE_NAMES = new Set([
+    'manager', 'managers',
+    'mod', 'mods', 'moderator', 'moderators',
+    'trialmod', 'trialmods', 'trialmoderator', 'trialmoderators',
+    'headmod', 'headmods', 'headmoderator', 'headmoderators',
+]);
+
+function compactName(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function detectPingRoles(guild, jailRole) {
+    return [...guild.roles.cache.values()].filter(
+        (role) =>
+            role.id !== guild.id &&
+            role.id !== jailRole?.id &&
+            !role.managed &&
+            PING_ROLE_NAMES.has(compactName(role.name)),
+    );
+}
+
+// The roles that really get pinged (they must still exist)
+export function getPingRoles(guild, config) {
+    return (config?.pingRoleIds || [])
+        .map((id) => guild.roles.cache.get(id))
+        .filter(Boolean);
+}
+
+export async function setPingRoles(guild, roleIds, { custom = true } = {}) {
+    const config = await getJailConfig(guild.id);
+
+    if (!config) {
+        throw new TitanBotError(
+            'Jail is not set up',
+            ErrorTypes.VALIDATION,
+            'Jail is not set up yet. Run `.jailsetup` first.',
+        );
+    }
+
+    const updated = { ...config, pingRoleIds: roleIds, pingCustom: custom };
+
+    await saveJailConfig(guild.id, updated);
+
+    return updated;
+}
+
+// Staff who can see the jail = roles that can jail people + the ping roles
+export function getAllStaffRoles(guild, jailRole, config) {
+    const roles = new Map();
+
+    for (const role of getStaffRoles(guild, jailRole)) roles.set(role.id, role);
+    for (const role of getPingRoles(guild, config)) roles.set(role.id, role);
+
+    return [...roles.values()];
 }
 
 // The bot can only hand out permissions that it has itself
@@ -177,6 +250,7 @@ export async function setupJail(guild, { setupBy = null } = {}) {
     const result = {
         createdRole: false,
         createdCategory: false,
+        createdTicketCategory: false,
         createdPanel: false,
         createdLogs: false,
         convertedOldChat: false,
@@ -201,7 +275,15 @@ export async function setupJail(guild, { setupBy = null } = {}) {
         result.createdRole = true;
     }
 
-    const staffRoles = getStaffRoles(guild, role);
+    // roles that are pinged when a ticket opens (found by name, unless you picked your own)
+    const pingRoleIds =
+        existing?.pingCustom
+            ? (existing.pingRoleIds || []).filter((id) => guild.roles.cache.has(id))
+            : detectPingRoles(guild, role).map((r) => r.id);
+
+    const pingCustom = Boolean(existing?.pingCustom);
+
+    const staffRoles = getAllStaffRoles(guild, role, { pingRoleIds });
     const botOverwrite = botOverwriteFor(me);
     const staffOverwrites = staffOverwritesFor(me, staffRoles);
 
@@ -227,6 +309,29 @@ export async function setupJail(guild, { setupBy = null } = {}) {
         result.createdCategory = true;
     } else {
         await category.permissionOverwrites.set(categoryOverwrites, reason).catch(() => {});
+    }
+
+    // 2b) the "Jail Tickets" category: every ticket channel is made in here
+    const ticketCategoryOverwrites = [
+        { id: guild.id, deny: [P.ViewChannel] },
+        ...botOverwrite,
+        ...staffOverwrites,
+    ];
+
+    let ticketCategory =
+        (existing?.ticketCategoryId && guild.channels.cache.get(existing.ticketCategoryId)) ||
+        guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === TICKETS_CATEGORY_NAME);
+
+    if (!ticketCategory) {
+        ticketCategory = await guild.channels.create({
+            name: TICKETS_CATEGORY_NAME,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: ticketCategoryOverwrites,
+            reason,
+        });
+        result.createdTicketCategory = true;
+    } else {
+        await ticketCategory.permissionOverwrites.set(ticketCategoryOverwrites, reason).catch(() => {});
     }
 
     // 3) #jail-ticket: jailed people can see it but not write. They press a button to open a ticket.
@@ -293,6 +398,7 @@ export async function setupJail(guild, { setupBy = null } = {}) {
     // 5) hide EVERY other channel and voice channel from the Jailed role
     for (const channel of guild.channels.cache.values()) {
         if (channel.id === category.id || channel.parentId === category.id) continue;
+        if (channel.id === ticketCategory.id || channel.parentId === ticketCategory.id) continue;
         if (channel.isThread?.() || !channel.permissionOverwrites) continue;
 
         try {
@@ -340,6 +446,9 @@ export async function setupJail(guild, { setupBy = null } = {}) {
     const config = {
         roleId: role.id,
         categoryId: category.id,
+        ticketCategoryId: ticketCategory.id,
+        pingRoleIds,
+        pingCustom,
         panelChannelId: panel.id,
         panelMessageId: panelMessage?.id ?? null,
         logChannelId: logs.id,
@@ -349,21 +458,28 @@ export async function setupJail(guild, { setupBy = null } = {}) {
 
     await saveJailConfig(guild.id, config);
 
-    return { config, role, category, panel, logs, staffRoles, result };
+    return { config, role, category, ticketCategory, panel, logs, staffRoles, pingRoles: pingRoleIds.map((id) => guild.roles.cache.get(id)).filter(Boolean), result };
 }
 
 // ==========================================
 // TICKETS
 // ==========================================
 
-function ticketNameFor(user) {
-    const slug = String(user.username || 'user')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 20);
+// A random 5 digit number that no open ticket uses yet, like  ticket-82527
+function newTicketNumber(guild) {
+    const used = new Set(
+        [...guild.channels.cache.values()]
+            .map((channel) => /^ticket-(\d{5})$/.exec(channel.name)?.[1])
+            .filter(Boolean),
+    );
 
-    return `ticket-${slug || 'user'}`;
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const number = String(Math.floor(10000 + Math.random() * 90000));
+
+        if (!used.has(number)) return number;
+    }
+
+    return String(Math.floor(10000 + Math.random() * 90000));
 }
 
 export async function writeJailLog(guild, config, { title, description, color = 'primary' }) {
@@ -437,13 +553,16 @@ export async function openJailTicket(guild, member, config, role) {
 
     const P = PermissionFlagsBits;
     const me = guild.members.me ?? await guild.members.fetchMe();
-    const staffRoles = getStaffRoles(guild, role);
+    const staffRoles = getAllStaffRoles(guild, role, config);
+    const pingRoles = getPingRoles(guild, config);
+
+    const ticketNumber = newTicketNumber(guild);
 
     const channel = await guild.channels.create({
-        name: ticketNameFor(member.user),
+        name: `ticket-${ticketNumber}`,
         type: ChannelType.GuildText,
-        parent: config.categoryId,
-        topic: `Jail ticket for ${member.user.tag} (${member.id})`,
+        parent: config.ticketCategoryId ?? config.categoryId,
+        topic: `Jail ticket #${ticketNumber} for ${member.user.tag} (${member.id})`,
         permissionOverwrites: [
             { id: guild.id, deny: [P.ViewChannel] },
             { id: member.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles] },
@@ -461,19 +580,30 @@ export async function openJailTicket(guild, member, config, role) {
 
     const record = await getJailRecord(guild.id, member.id);
 
+    // pings the jailed person and the staff roles (Manager, Mod, Trial Mod, Head Mod ...)
+    const pings = pingRoles.map((r) => `<@&${r.id}>`).join(' ');
+
     await channel
         .send({
-            content: `${member}`,
+            content: `${member}${pings ? ` ${pings}` : ''}`,
             embeds: [
                 createEmbed({
-                    title: 'Jail ticket',
+                    title: `Ticket #${ticketNumber}`,
                     description:
-                        `Hello ${member}! You are in jail.\n` +
+                        `Hello ${member}! You are in jail.\n\n` +
                         (record
                             ? `**Jailed by:** <@${record.moderatorId}>\n**Reason:** ${record.reason}\n\n`
-                            : '\n') +
-                        'Write here and a moderator will talk to you.',
+                            : '**Reason:** not saved\n\n') +
+                        'Explain what you want to say to the staff in this channel.',
                     color: 'warning',
+                    fields: [
+                        {
+                            name: 'Rules',
+                            value:
+                                '1. Do not ping the staff.\n' +
+                                '2. Be patient. A moderator will answer when they can.',
+                        },
+                    ],
                 }),
             ],
             components: [
@@ -484,13 +614,16 @@ export async function openJailTicket(guild, member, config, role) {
                         .setStyle(ButtonStyle.Danger),
                 ),
             ],
-            allowedMentions: { users: [member.id] },
+            allowedMentions: { users: [member.id], roles: pingRoles.map((r) => r.id) },
         })
         .catch(() => {});
 
     await writeJailLog(guild, config, {
-        title: 'Jail ticket opened',
-        description: `**User:** ${member} (${member.id})\n**Channel:** ${channel}`,
+        title: `Jail ticket #${ticketNumber} opened`,
+        description:
+            `**User:** ${member} (${member.id})\n` +
+            `**Channel:** ${channel}\n` +
+            (record ? `**Jail reason:** ${record.reason}` : ''),
         color: 'warning',
     });
 
