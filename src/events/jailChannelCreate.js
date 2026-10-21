@@ -1,6 +1,6 @@
 import { Events } from 'discord.js';
 import { logger } from '../utils/logger.js';
-import { getJailConfig, jailChannelIds, lockChannelForJail } from '../services/jailService.js';
+import { getJailConfig, isJailArea, lockChannelForJail } from '../services/jailService.js';
 
 // When a new channel is made, the Jailed role is stopped from seeing it
 export default {
@@ -15,8 +15,8 @@ export default {
 
             if (!config?.roleId) return;
 
-            // the jail category and everything inside it (tickets) is handled by the jail system itself
-            if (jailChannelIds(config).includes(channel.id) || channel.parentId === config.categoryId) return;
+            // the two jail categories and everything inside them (tickets) are handled by the jail system itself
+            if (isJailArea(config, channel)) return;
 
             const role = channel.guild.roles.cache.get(config.roleId);
 
