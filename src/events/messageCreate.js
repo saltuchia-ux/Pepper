@@ -9,6 +9,7 @@ import {
 import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { executePrefixCommand } from '../utils/messageAdapter.js';
+import { resolveCommandAlias } from '../config/commands/commandAliases.js';
 
 import {
   getCountingGameConfig,
@@ -189,9 +190,8 @@ async function handlePrefixCommand(
     }
 
     const command =
-      client.commands.get(
-        commandName
-      );
+      client.commands.get(commandName) ??
+      client.commands.get(resolveCommandAlias(commandName));
 
     if (!command) {
       return;
