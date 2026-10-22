@@ -94,7 +94,7 @@ export default {
                 embeds: [
                     errorBox(
                         'Member not found',
-                        'I could not find that member '
+                        'I could not find that member in this server. Check the name or ID and make sure they have not left. '
                     ),
                 ],
                 ephemeral: true,
