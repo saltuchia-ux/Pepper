@@ -24,11 +24,23 @@ export const COMMAND_SYNTAX = {
     ms:       { syntax: 'ms (user)',                      example: 'ms John' },
     grole:    { syntax: 'grole (role) (user)',            example: 'grole cool kids John' },
     trole:    { syntax: 'trole (role) (user)',            example: 'trole cool kids John' },
+    crole:    { syntax: 'crole (user) (old role), (new role)', example: 'crole John Member, Verified' },
     mrole:    { syntax: 'mrole (name) (#color)',          example: 'mrole cool kids #ff0000' },
     s:        { syntax: 's (number)',                     example: 's 2' },
     es:       { syntax: 'es (number)',                    example: 'es 2' },
+    birthday:      { syntax: 'birthday (user)',                example: 'birthday @John' },
+    'birthday set':      { syntax: 'birthday set (date)',      example: 'birthday set March 3, 2002' },
+    'birthday info':     { syntax: 'birthday info (user)',     example: 'birthday info @John' },
+    'birthday list':     { syntax: 'birthday list',            example: 'birthday list' },
+    'birthday next':     { syntax: 'birthday next',            example: 'birthday next' },
+    'birthday remove':   { syntax: 'birthday remove',          example: 'birthday remove' },
     counting: { syntax: 'counting (setup/status/reset/disable)', example: 'counting setup #general' },
 };
+
+// Looks up one saved entry: "ban" or "birthday set". Returns { syntax, example } or null.
+export function getSyntaxEntry(key) {
+    return COMMAND_SYNTAX[String(key || '').toLowerCase()] ?? null;
+}
 
 // Returns the finished text, or null if this command has no syntax saved
 export function buildSyntaxText(prefix, commandName) {
