@@ -47,7 +47,8 @@ export function assertCanChangeNick(
         throw new TitanBotError(
             `Missing ${permissionName} permission`,
             ErrorTypes.PERMISSION,
-            `You need the **${permissionName}** permission to use this command.`,
+            null,
+            { missingPermission: permissionName.toLowerCase().replace(/ /g, '_') },
         );
     }
 
@@ -71,7 +72,8 @@ export function assertCanChangeNick(
         throw new TitanBotError(
             'Hierarchy',
             ErrorTypes.PERMISSION,
-            'You cannot change the nickname of someone with an equal or higher role than you.',
+            `You can't change <@${member.id}>'s nickname.`,
+            { plain: true },
         );
     }
 

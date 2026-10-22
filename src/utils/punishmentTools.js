@@ -1,6 +1,11 @@
 import { PermissionFlagsBits, ChannelType } from 'discord.js';
 import { createEmbed } from './embeds.js';
 import { logger } from './logger.js';
+import { InteractionHelper } from './interactionHelper.js';
+import { TitanBotError, ErrorTypes } from './errorHandler.js';
+import { getCommandPrefix } from '../config/bot.js';
+import { buildSyntaxText } from '../config/commands/commandSyntax.js';
+import { plainPayload } from './replyStyle.js';
 
 // ==========================================
 // SHARED TOOLS for .kick  .timeout  .ban
@@ -57,6 +62,39 @@ export function extractUserId(value) {
     if (/^\d+$/.test(text)) return text;
 
     return null;
+}
+
+// ------------------------------------------
+// SHORT PLAIN MESSAGES (no box around them)
+// ------------------------------------------
+
+// Plain text reply. Mentions are shown but nobody gets pinged.
+export function plainReply(interaction, text) {
+    return InteractionHelper.universalReply(interaction, plainPayload(text));
+}
+
+// "Syntax: .ban (user) (reason)  /  Example: .ban John annoying"
+export function syntaxReply(interaction, commandName) {
+    const text = buildSyntaxText(getCommandPrefix(), commandName)
+        ?? `Wrong usage. Try ${getCommandPrefix()}help ${commandName}`;
+
+    return plainReply(interaction, text);
+}
+
+// Short "User not found"
+export function userNotFoundReply(interaction) {
+    return plainReply(interaction, 'User not found');
+}
+
+// "⚠️ @user: You're missing permission: `ban_members`"
+// Use:  throw missingPermission('ban_members');
+export function missingPermission(permissionName) {
+    return new TitanBotError(
+        `Missing ${permissionName} permission`,
+        ErrorTypes.PERMISSION,
+        null,
+        { missingPermission: permissionName },
+    );
 }
 
 // Red error box
@@ -172,7 +210,8 @@ export async function sendPunishmentDm(user, embed) {
     if (!user || user.bot) return null;
 
     try {
-        return await user.send({ embeds: [embed] });
+        // A plain string is sent as normal text, anything else as an embed
+        return await user.send(typeof embed === 'string' ? { content: embed } : { embeds: [embed] });
     } catch (error) {
         logger.debug(`Could not DM ${user.id}: ${error.message}`);
         return null;
@@ -265,18 +304,16 @@ export function buildUnmuteDm({ guild, reason }) {
 }
 
 export function buildUnbanDm({ guild, reason, inviteUrl }) {
-    const fields = [{ name: '📝 Reason', value: shownReason(reason) }];
+    // Plain text (no box)
+    let text = `You have been unbanned from **${guild.name}**.`;
 
-    if (inviteUrl) {
-        fields.push({ name: '🔗 Join back', value: `You can come back with this link:\n${inviteUrl}` });
+    if (reason && reason !== DEFAULT_REASON) {
+        text += `\nReason: ${reason}`;
     }
 
-    return createEmbed({
-        title: '✅ You have been unbanned',
-        description: `You have been unbanned from **${guild.name}**.`,
-        color: 'success',
-        thumbnail: guild.iconURL?.({ size: 256 }) || null,
-        fields,
-        timestamp: true,
-    });
+    if (inviteUrl) {
+        text += `\nYou can come back with this link: ${inviteUrl}`;
+    }
+
+    return text;
 }

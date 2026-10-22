@@ -2,6 +2,8 @@
 
 import { buildUserErrorEmbed } from './embeds.js';
 import { logger } from './logger.js';
+import { buildSyntaxText } from '../config/commands/commandSyntax.js';
+import { plainPayload } from './replyStyle.js';
 
 function getCommandJson(commandData) {
   return commandData?.toJSON ? commandData.toJSON() : commandData;
@@ -191,6 +193,15 @@ export class ResponseCoordinator {
   }
 
   async respondUsageFromCommand(prefix, commandData, validation) {
+    // Commands with saved syntax get the short plain message
+    const syntax = buildSyntaxText(prefix, getCommandJson(commandData)?.name);
+
+    if (syntax) {
+      const result = await this.respond(plainPayload(syntax));
+      this.markFinalized('usage');
+      return result;
+    }
+
     const usageLine = buildPrefixUsage(prefix, commandData, validation);
     return this.respondUsage(usageLine);
   }

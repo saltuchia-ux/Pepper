@@ -21,6 +21,7 @@ import { buildUserErrorEmbed } from './embeds.js';
 import { MessageFlags } from 'discord.js';
 import { getErrorMetadata, getDefaultErrorCodeByType, resolveErrorCode, ErrorCodes } from './errorRegistry.js';
 import { InteractionHelper } from './interactionHelper.js';
+import { plainPayload, missingPermissionPayload } from './replyStyle.js';
 
 // Re-export so consumers only ever need to import from errorHandler.js
 export { ErrorCodes, getErrorMetadata, resolveErrorCode, getDefaultErrorCodeByType } from './errorRegistry.js';
@@ -408,7 +409,8 @@ async function sendErrorResponse(interaction, embed, context = {}) {
             return false;
         }
 
-        const errorMessage = { embeds: [embed] };
+        // A command can ask for a plain-text or custom reply instead of the red box
+        const errorMessage = context.payload ? { ...context.payload } : { embeds: [embed] };
 
         if (interaction._isPrefixCommand) {
             if (coordinator?.hasResponded()) {
@@ -518,7 +520,20 @@ export async function handleInteractionError(interaction, error, context = {}) {
         : `${userMessage}\n\n-# Ref: \`${buildErrorReference(resolvedErrorCode, traceId)}\``;
 
     const embed = buildUserErrorEmbed(errorType, description);
-    await sendErrorResponse(interaction, embed, { ...context, traceId });
+
+    // Short custom replies:
+    //   context.plain             -> plain text, no box
+    //   context.missingPermission -> "⚠️ @user: You're missing permission: `ban_members`"
+    let payload = null;
+    const errorContext = normalizedError?.context || {};
+
+    if (errorContext.missingPermission) {
+        payload = missingPermissionPayload(interaction.user?.id, errorContext.missingPermission);
+    } else if (errorContext.plain) {
+        payload = plainPayload(userMessage);
+    }
+
+    await sendErrorResponse(interaction, embed, { ...context, traceId, payload });
 }
 
 /**

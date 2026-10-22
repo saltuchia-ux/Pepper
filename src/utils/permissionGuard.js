@@ -1,6 +1,7 @@
 // permissionGuard.js
 
 import { PermissionFlagsBits } from 'discord.js';
+import { missingPermissionPayload } from './replyStyle.js';
 import { logger } from './logger.js';
 import { replyUserError, ErrorTypes } from './errorHandler.js';
 import { isBotOwner, getBotMessage } from '../config/bot.js';
@@ -174,6 +175,8 @@ export async function enforceDefaultCommandPermissions(interaction, command, con
       source: context.source ?? 'permissionGuard.enforceDefaultCommandPermissions',
       commandName,
       requiredPermissions: requiredPermissions.toString(),
+      // "⚠️ @user: You're missing permission: `ban_members`"
+      payload: missingPermissionPayload(interaction.user?.id, requiredPermissions),
     },
   });
 
