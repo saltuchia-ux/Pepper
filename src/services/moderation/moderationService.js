@@ -123,13 +123,25 @@ export class ModerationService {
   static assertModerationHierarchy(moderator, target, action) {
     const botCheck = this.validateBotHierarchy(target, action);
     if (!botCheck.valid) {
-      throw new TitanBotError(botCheck.error, ErrorTypes.PERMISSION, botCheck.error);
+      throw this.buildCantError(target, action, botCheck.error);
     }
 
     const modCheck = this.validateHierarchy(moderator, target, action);
     if (!modCheck.valid) {
-      throw new TitanBotError(modCheck.error, ErrorTypes.PERMISSION, modCheck.error);
+      throw this.buildCantError(target, action, modCheck.error);
     }
+  }
+
+  // Short plain message: "You can't ban @user."
+  static buildCantError(target, action, technicalMessage) {
+    const label = target?.id ? `<@${target.id}>` : 'that user';
+
+    return new TitanBotError(
+      technicalMessage,
+      ErrorTypes.PERMISSION,
+      `You can't ${action} ${label}.`,
+      { plain: true },
+    );
   }
 
   static async banUser({
@@ -169,7 +181,8 @@ export class ModerationService {
             throw new TitanBotError(
                 'You do not have sufficient permissions to ban users who are not in the server.',
                 ErrorTypes.PERMISSION,
-                'You need "Manage Server" or "Administrator" permissions to ban users not currently in the guild.'
+                null,
+                { missingPermission: 'manage_guild' }
             );
         }
       }
@@ -225,12 +238,7 @@ export class ModerationService {
 
       if (!member.kickable) {
         const targetLabel = getTargetLabel(member);
-        throw new TitanBotError(
-          'Cannot kick member',
-          ErrorTypes.PERMISSION,
-          `I cannot kick **${targetLabel}**. They may have **Administrator** permission or a managed/integration role. ` +
-          'Ensure my bot role is above theirs in **Server Settings → Roles** and that they do not have Admin.'
-        );
+        throw this.buildCantError(member, 'kick', 'Cannot kick member');
       }
 
       await member.kick(reason);
@@ -279,16 +287,11 @@ export class ModerationService {
         );
       }
 
-      this.assertModerationHierarchy(moderator, member, 'timeout');
+      this.assertModerationHierarchy(moderator, member, 'mute');
 
       if (!member.moderatable) {
         const targetLabel = getTargetLabel(member);
-        throw new TitanBotError(
-          'Cannot timeout member',
-          ErrorTypes.PERMISSION,
-          `I cannot timeout **${targetLabel}**. They may have **Administrator** permission or a managed/integration role. ` +
-          'Ensure my bot role is above theirs in **Server Settings → Roles** and that they do not have Admin.'
-        );
+        throw this.buildCantError(member, 'mute', 'Cannot timeout member');
       }
 
       await member.timeout(durationMs, reason);
@@ -340,23 +343,19 @@ export class ModerationService {
         );
       }
 
-      this.assertModerationHierarchy(moderator, member, 'remove the timeout from');
+      this.assertModerationHierarchy(moderator, member, 'unmute');
 
       if (!member.moderatable) {
         const targetLabel = getTargetLabel(member);
-        throw new TitanBotError(
-          'Cannot modify member',
-          ErrorTypes.PERMISSION,
-          `I cannot modify **${targetLabel}**. They may have **Administrator** permission or a managed/integration role. ` +
-          'Ensure my bot role is above theirs in **Server Settings → Roles**.'
-        );
+        throw this.buildCantError(member, 'unmute', 'Cannot modify member');
       }
 
       if (!member.isCommunicationDisabled()) {
         throw new TitanBotError(
           'User not timed out',
           ErrorTypes.VALIDATION,
-          `${member.user.tag} is not currently timed out`
+          'User is not muted.',
+          { plain: true }
         );
       }
 
@@ -410,7 +409,8 @@ export class ModerationService {
         throw new TitanBotError(
           'User not banned',
           ErrorTypes.VALIDATION,
-          `${user.tag} is not currently banned from this server`
+          'User is not banned.',
+          { plain: true }
         );
       }
 
