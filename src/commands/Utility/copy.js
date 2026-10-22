@@ -1,145 +1,278 @@
-const { PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
+import { logger } from '../../utils/logger.js';
+import { getPrefixText } from '../../utils/punishmentTools.js';
 
-module.exports = {
-    name: 'copy',
-    description: 'Copies custom emojis or stickers from a replied message or ID and adds them to the server.',
-    category: 'Utility',
-    aliases: ['steal', 'addemoji', 'addsticker'],
-    run: async (client, message, args) => {
-        try {
-            console.log(`[COPY COMMAND] Executed by ${message.author.tag}`);
+// ==========================================
+// .copy  -  copies an emoji or a sticker into THIS server
+//
+//   Reply to a message that has an emoji or a sticker and type   .copy
+//   .copy <the emoji>                  (paste the emoji)
+//   .copy 123456789012345678           (emoji ID or sticker ID)
+//   .copy <the emoji> newname          (give it a new name)
+// ==========================================
 
-            // Check bot permissions
-            if (!message.guild.members.me.permissions.has(PermissionFlagsBits.ManageEmojisAndStickers)) {
-                return message.reply('❌ I need the **Manage Emojis and Stickers** permission to add emojis or stickers to this server.');
-            }
+const MANAGE_EXPRESSIONS = PermissionFlagsBits.ManageGuildExpressions;
+const MAX_ITEMS = 10;
+const EMOJI_MARKUP = /<(a?):(\w{2,32}):(\d{15,25})>/g;
+const LOTTIE = 3;   // sticker format that only verified servers can upload
 
-            let targets = [];
+export default {
+    data: new SlashCommandBuilder()
+        .setName('copy')
+        .setDescription('Copy an emoji or sticker into this server (reply to a message with .copy)')
+        .addStringOption((option) =>
+            option
+                .setName('item')
+                .setDescription('The emoji, or the emoji / sticker ID, to copy')
+                .setRequired(false),
+        )
+        .setDefaultMemberPermissions(MANAGE_EXPRESSIONS),
+    category: 'utility',
 
-            // Helper function to extract all custom emojis from text
-            const extractEmojis = (text) => {
-                if (!text) return [];
-                const regex = /<(a?):([a-zA-Z0-9_]{2,32}):([0-9]{17,20})>/g;
-                const matches = [...text.matchAll(regex)];
-                return matches.map(m => ({
-                    type: 'emoji',
-                    name: m[2],
-                    url: `https://cdn.discordapp.com/emojis/${m[3]}.${m[1] === 'a' ? 'gif' : 'png'}`
-                }));
-            };
+    // Slash command: /copy item:<emoji or id>
+    async execute(interaction, config, client) {
+        const text = interaction.options.getString('item') || '';
 
-            // 1. Check if user replied to a message
-            if (message.reference && message.reference.messageId) {
-                try {
-                    const refMsg = await message.channel.messages.fetch(message.reference.messageId);
-                    
-                    // Check for stickers in replied message
-                    if (refMsg.stickers && refMsg.stickers.size > 0) {
-                        const sticker = refMsg.stickers.first();
-                        targets.push({
-                            type: 'sticker',
-                            name: sticker.name ? sticker.name.replace(/[^a-zA-Z0-9_]/g, '_') : 'sticker',
-                            url: sticker.url
-                        });
-                    }
+        return copyItems(interaction, client, text, null);
+    },
 
-                    // Check for custom emojis in replied message content
-                    const refEmojis = extractEmojis(refMsg.content);
-                    if (refEmojis.length > 0) {
-                        targets.push(...refEmojis);
-                    }
-                } catch (err) {
-                    console.error('Failed to fetch referenced message:', err);
-                }
-            }
+    // Prefix command: .copy   (as a reply)   or   .copy <emoji>   or   .copy <id>
+    async prefixExecute(interaction, config, client) {
+        const text = getPrefixText(interaction, 'copy');
+        const original = interaction.message ?? interaction._responseCoordinator?.message ?? null;
 
-            // 2. Check command arguments if no targets found from reply
-            if (targets.length === 0 && args.length > 0) {
-                const argEmojis = extractEmojis(args[0]);
-                if (argEmojis.length > 0) {
-                    targets.push(...argEmojis);
-                } else {
-                    // Check if argument is a raw ID (17-20 digits)
-                    const idMatch = args[0].trim().match(/^([0-9]{17,20})$/);
-                    if (idMatch) {
-                        const id = idMatch[1];
-                        const customName = args[1] ? args[1].replace(/[^a-zA-Z0-9_]/g, '_') : `emoji_${id}`;
-                        
-                        // Try fetching as sticker first
-                        let isSticker = false;
-                        try {
-                            const sticker = await client.fetchSticker(id);
-                            if (sticker && sticker.url) {
-                                targets.push({
-                                    type: 'sticker',
-                                    name: sticker.name ? sticker.name.replace(/[^a-zA-Z0-9_]/g, '_') : customName,
-                                    url: sticker.url
-                                });
-                                isSticker = true;
-                            }
-                        } catch (e) {}
+        return copyItems(interaction, client ?? interaction.client, text, original);
+    },
+};
 
-                        // If not a sticker, default to emoji URL
-                        if (!isSticker) {
-                            targets.push({
-                                type: 'emoji',
-                                name: customName,
-                                url: `https://cdn.discordapp.com/emojis/${id}.png`
-                            });
-                        }
-                    }
-                }
-            }
+// Reads the text: emojis pasted in it, plain IDs, and an optional new name
+function parseText(text) {
+    const targets = [];
+    const seen = new Set();
 
-            if (targets.length === 0) {
-                return message.reply('❌ Please reply to a message containing custom emojis/stickers or provide a valid emoji/sticker ID.');
-            }
+    for (const match of text.matchAll(EMOJI_MARKUP)) {
+        if (seen.has(match[3])) continue;
+        seen.add(match[3]);
+        targets.push({ type: 'emoji', animated: match[1] === 'a', name: match[2], id: match[3] });
+    }
 
-            const statusMsg = await message.reply(`🔄 Processing and copying ${targets.length} item(s) to the server...`);
+    const rest = text.replace(EMOJI_MARKUP, ' ').split(/\s+/).filter(Boolean);
+    const leftovers = [];
 
-            let successCount = 0;
-            let failCount = 0;
-
-            for (const target of targets) {
-                let cleanName = target.name.replace(/[^a-zA-Z0-9_]/g, '_');
-                if (cleanName.length < 2) cleanName = `${cleanName}_emoji`;
-                if (cleanName.length > 32) cleanName = cleanName.substring(0, 32);
-
-                try {
-                    // Download asset buffer securely to avoid URL parsing issues
-                    const res = await fetch(target.url);
-                    if (!res.ok) throw new Error(`Failed to fetch asset from CDN (Status: ${res.status})`);
-                    const buffer = Buffer.from(await res.arrayBuffer());
-                    const attachment = new AttachmentBuilder(buffer, { name: `${cleanName}.${target.type === 'emoji' ? 'png' : 'png'}` });
-
-                    if (target.type === 'emoji') {
-                        await message.guild.emojis.create({
-                            attachment: buffer,
-                            name: cleanName,
-                            reason: `Copied by ${message.author.tag}`
-                        });
-                        successCount++;
-                    } else if (target.type === 'sticker') {
-                        await message.guild.stickers.create({
-                            file: buffer,
-                            name: cleanName,
-                            tags: cleanName,
-                            description: `Copied by ${message.author.tag}`,
-                            reason: `Copied by ${message.author.tag}`
-                        });
-                        successCount++;
-                    }
-                } catch (error) {
-                    console.error(`Failed to upload ${cleanName}:`, error);
-                    failCount++;
-                }
-            }
-
-            return statusMsg.edit(`✅ Successfully added **${successCount}** item(s) to the server! ${failCount > 0 ? `(Failed: ${failCount})` : ''}`);
-
-        } catch (error) {
-            console.error('Critical error in copy command:', error);
-            return message.reply(`❌ An error occurred while executing the command: \`${error.message}\``);
+    for (const word of rest) {
+        if (/^\d{15,25}$/.test(word)) {
+            if (seen.has(word)) continue;
+            seen.add(word);
+            targets.push({ type: 'unknown', id: word });
+        } else {
+            leftovers.push(word);
         }
     }
-};
+
+    // ".copy <emoji> newname"
+    const newName = leftovers.length ? cleanName(leftovers[0]) : null;
+
+    return { targets, newName };
+}
+
+function cleanName(name) {
+    const clean = String(name || '').replace(/[^A-Za-z0-9_]/g, '_').slice(0, 32);
+
+    return clean.length >= 2 ? clean : null;
+}
+
+// Emojis and stickers on the message the person replied to
+async function readReply(original) {
+    const replyId = original?.reference?.messageId;
+
+    if (!replyId) return [];
+
+    const replied = await original.channel.messages.fetch(replyId).catch(() => null);
+
+    if (!replied) return [];
+
+    const targets = [];
+    const seen = new Set();
+
+    for (const match of (replied.content || '').matchAll(EMOJI_MARKUP)) {
+        if (seen.has(match[3])) continue;
+        seen.add(match[3]);
+        targets.push({ type: 'emoji', animated: match[1] === 'a', name: match[2], id: match[3] });
+    }
+
+    for (const item of replied.stickers?.values?.() || []) {
+        targets.push({ type: 'stickerItem', item });
+    }
+
+    return targets;
+}
+
+function friendlyError(error, kind) {
+    const code = error?.code;
+
+    if (code === 30008) return 'This server has no free emoji slots left.';
+    if (code === 30039) return 'This server has no free sticker slots left.';
+    if (code === 50013) return 'I do not have the **Manage Expressions** permission.';
+    if (code === 50035) return `Discord rejected that ${kind} (the name or the file size is not allowed).`;
+    if (code === 10057 || code === 404) return `I could not find that ${kind}.`;
+
+    return `I could not copy that ${kind}.`;
+}
+
+// Checks if an emoji ID exists and if it is animated. Returns 'gif', 'png' or null.
+async function probeEmoji(id) {
+    try {
+        const gif = await fetch(`https://cdn.discordapp.com/emojis/${id}.gif?size=64`);
+
+        if (gif.ok && (gif.headers.get('content-type') || '').includes('gif')) return 'gif';
+
+        const png = await fetch(`https://cdn.discordapp.com/emojis/${id}.png?size=64`);
+
+        return png.ok ? 'png' : null;
+    } catch (error) {
+        logger.debug(`Emoji probe failed for ${id}: ${error.message}`);
+        return null;
+    }
+}
+
+async function copyEmoji(guild, target, newName, reason) {
+    if (guild.emojis.cache.has(target.id)) {
+        return { ok: false, text: `That emoji is already in this server (${guild.emojis.cache.get(target.id)}).` };
+    }
+
+    let animated = target.animated;
+
+    if (animated === undefined) {
+        const format = await probeEmoji(target.id);
+
+        if (!format) return { ok: false, text: `I could not find an emoji with the ID \`${target.id}\`.` };
+
+        animated = format === 'gif';
+    }
+
+    const name = newName || cleanName(target.name) || `copied_${target.id.slice(-4)}`;
+
+    try {
+        const created = await guild.emojis.create({
+            attachment: `https://cdn.discordapp.com/emojis/${target.id}.${animated ? 'gif' : 'png'}?size=128`,
+            name,
+            reason,
+        });
+
+        return { ok: true, text: `Copied the emoji ${created} as \`${created.name}\`` };
+    } catch (error) {
+        logger.debug(`Could not copy emoji ${target.id}: ${error.message}`);
+        return { ok: false, text: friendlyError(error, 'emoji') };
+    }
+}
+
+async function copySticker(guild, sticker, newName, reason) {
+    if (sticker.guildId === guild.id) {
+        return { ok: false, text: `The sticker **${sticker.name}** is already in this server.` };
+    }
+
+    if (sticker.format === LOTTIE) {
+        return {
+            ok: false,
+            text: `The sticker **${sticker.name}** is an animated Lottie sticker. Discord only lets verified servers upload those.`,
+        };
+    }
+
+    try {
+        const created = await guild.stickers.create({
+            file: sticker.url,
+            name: newName || sticker.name,
+            tags: sticker.tags || sticker.name,
+            description: sticker.description || undefined,
+            reason,
+        });
+
+        return { ok: true, text: `Copied the sticker **${created.name}**` };
+    } catch (error) {
+        logger.debug(`Could not copy sticker ${sticker.id}: ${error.message}`);
+        return { ok: false, text: friendlyError(error, 'sticker') };
+    }
+}
+
+async function copyItems(interaction, client, text, original) {
+    // Only people with the Manage Expressions permission can use this
+    if (!interaction.member.permissions.has(MANAGE_EXPRESSIONS)) {
+        throw new TitanBotError(
+            'Missing Manage Expressions permission',
+            ErrorTypes.PERMISSION,
+            'You need the **Manage Expressions** permission to use this command.',
+        );
+    }
+
+    const guild = interaction.guild;
+    const me = guild.members.me ?? await guild.members.fetchMe();
+
+    if (!me.permissions.has(MANAGE_EXPRESSIONS)) {
+        throw new TitanBotError(
+            'Bot permission missing',
+            ErrorTypes.PERMISSION,
+            'I need the **Manage Expressions** permission to copy emojis and stickers.',
+        );
+    }
+
+    // 1) what to copy: the text first, otherwise the message that was replied to
+    const parsed = parseText(text || '');
+    let targets = parsed.targets;
+
+    if (!targets.length && original) {
+        targets = await readReply(original);
+    }
+
+    if (!targets.length) {
+        throw new TitanBotError(
+            'Nothing to copy',
+            ErrorTypes.USER_INPUT,
+            'Reply to a message that has an emoji or a sticker and type `.copy`.\n' +
+            'Or use `.copy <emoji>` or `.copy <emoji or sticker ID>`.',
+        );
+    }
+
+    const cut = targets.length > MAX_ITEMS;
+    targets = targets.slice(0, MAX_ITEMS);
+
+    const newName = targets.length === 1 ? cleanName(parsed.newName) : null;
+    const reason = `Copied by ${interaction.user.tag}`;
+    const lines = [];
+    let copied = 0;
+
+    // 2) copy each one
+    for (const target of targets) {
+        let result;
+
+        if (target.type === 'emoji') {
+            result = await copyEmoji(guild, target, newName, reason);
+        } else if (target.type === 'stickerItem') {
+            const sticker = await target.item.fetch().catch(() => null);
+
+            result = sticker
+                ? await copySticker(guild, sticker, newName, reason)
+                : { ok: false, text: 'I could not read that sticker.' };
+        } else {
+            // only an ID was given: it can be a sticker or an emoji
+            const sticker = await client.fetchSticker(target.id).catch(() => null);
+
+            result = sticker
+                ? await copySticker(guild, sticker, newName, reason)
+                : await copyEmoji(guild, { id: target.id, animated: undefined, name: null }, newName, reason);
+        }
+
+        if (result.ok) copied++;
+
+        lines.push(`${result.ok ? '✅' : '❌'} ${result.text}`);
+    }
+
+    if (cut) lines.push(`Only the first ${MAX_ITEMS} were copied.`);
+
+    // plain message (not an embed) so the copied emoji shows
+    return InteractionHelper.universalReply(interaction, {
+        content: lines.join('\n'),
+        allowedMentions: { parse: [] },
+    });
+}
