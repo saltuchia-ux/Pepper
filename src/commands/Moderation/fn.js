@@ -12,6 +12,8 @@ import {
     cleanNickText,
     assertCanChangeNick,
 } from '../../utils/forcedNick.js';
+import { syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
+import { successPayload } from '../../utils/replyStyle.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -56,17 +58,7 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target?.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.fn @user New Name` to force a nickname.\n' +
-                        'Use `.fn @user` (no name) to remove it.\n' +
-                        'You can use a mention, user ID, username or display name.',
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'fn');
         }
 
         const nickname = cleanNickText(parts.slice(target.used).join(' '));
@@ -94,17 +86,10 @@ async function toggleForcedNick(interaction, member, nickname) {
         await clearForcedNick(guildId, member.id);
         await member.setNickname(null, `Forced nickname removed by ${interaction.user.tag}`);
 
-        return InteractionHelper.universalReply(interaction, {
-            embeds: [
-                createEmbed({
-                    title: 'Forced Nickname Removed',
-                    description: `${member} can change their nickname again. Their nickname was reset.`,
-                    color: 'success',
-                    fields: [{ name: 'By', value: `${interaction.user}`, inline: true }],
-                    timestamp: true,
-                }),
-            ],
-        });
+        return InteractionHelper.universalReply(
+            interaction,
+            successPayload(`${interaction.user}: No longer **forcing nickname** for **${member.user.username}**`),
+        );
     }
 
     if (nickname.length > MAX_NICK_LENGTH) {
@@ -119,15 +104,10 @@ async function toggleForcedNick(interaction, member, nickname) {
     await setForcedNick(guildId, member.id, nickname, interaction.user.id);
     await member.setNickname(nickname, `Forced nickname set by ${interaction.user.tag}`);
 
-    return InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: 'Forced Nickname Set',
-                description: `${member} is now locked to **${nickname}**. Run \`.fn ${member.user.username}\` again to remove it.`,
-                color: 'warning',
-                fields: [{ name: 'By', value: `${interaction.user}`, inline: true }],
-                timestamp: true,
-            }),
-        ],
-    });
+    return InteractionHelper.universalReply(
+        interaction,
+        successPayload(
+            `${interaction.user}: Now **forcing nickname** for **${member.user.username}** to \`${nickname}\``,
+        ),
+    );
 }

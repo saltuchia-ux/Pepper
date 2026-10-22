@@ -15,6 +15,7 @@ import {
     sendPunishmentDm,
     buildBanDm,
 } from '../../utils/punishmentTools.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -73,18 +74,7 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.ban @user reason`, `.ban userID reason` or `.ban username reason`.\n' +
-                        'Names with spaces go in quotes: `.ban "John Smith" reason`.\n' +
-                        'The reason is optional. A name only works for people in the server, a user ID works for anyone.\n' +
-                        'For a temporary ban use `.tempban userID 3 days reason`.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'ban');
         }
 
         // A user ID works even if the person is not in the server
@@ -94,10 +84,7 @@ export default {
             await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('User not found', 'I could not find a Discord user with that ID.')],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
@@ -110,11 +97,7 @@ export default {
 async function banUser(interaction, client, user, reason) {
     // Only people with the Ban Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
-        throw new TitanBotError(
-            'Missing Ban Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Ban Members** permission to use this command.',
-        );
+        throw missingPermission('ban_members');
     }
 
     if (user.id === interaction.user.id) {

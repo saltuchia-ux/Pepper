@@ -12,6 +12,8 @@ import {
     closeJailTicket,
     clearJailRecord,
 } from '../../services/jailService.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
+import { infoPayload } from '../../utils/replyStyle.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -65,31 +67,13 @@ export default {
         const parts = getPrefixText(interaction, 'role').split(/\s+/).filter(Boolean);
 
         if (parts[0]?.toLowerCase() !== 'restore') {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'What should I do?',
-                        'Use `.role restore @user`, `.role restore userID` or `.role restore username`.\n' +
-                        'Names with spaces go in quotes: `.role restore "John Smith"`.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return syntaxReply(interaction, 'role');
         }
 
         const target = await takeUserFromWords(guild, parts.slice(1));
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.role restore @user`, `.role restore userID` or `.role restore username`.\n' +
-                        'Names with spaces go in quotes: `.role restore "John Smith"`.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length > 1 ? userNotFoundReply(interaction) : syntaxReply(interaction, 'role');
         }
 
         return restoreRoles(interaction, target.id, target.member);
@@ -99,11 +83,7 @@ export default {
 async function restoreRoles(interaction, userId, member) {
     // Only people with the Ban Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
-        throw new TitanBotError(
-            'Missing Ban Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Ban Members** permission to use this command.',
-        );
+        throw missingPermission('ban_members');
     }
 
     const guild = interaction.guild;
@@ -113,8 +93,8 @@ async function restoreRoles(interaction, userId, member) {
         throw new TitanBotError(
             'No saved roles',
             ErrorTypes.VALIDATION,
-            'There are no saved roles for that person.\n' +
-            'Roles are saved for **2 hours** after a jail, kick or ban. After that they are gone.',
+            'No roles to restore. Roles are only saved for 2 hours.',
+            { plain: true },
         );
     }
 
@@ -125,8 +105,9 @@ async function restoreRoles(interaction, userId, member) {
             'Not in the server',
             ErrorTypes.USER_INPUT,
             banned
-                ? 'That person is banned. Use `.unban` first and let them rejoin, then use `.role restore`.\n'
-                : 'That person is not in the server. Once they rejoin, use `.role restore` again.\n',
+                ? 'That person is banned. Unban them first, then use .role restore.'
+                : 'That person is not in the server. Use .role restore again once they rejoin.',
+            { plain: true },
         );
     }
 
@@ -218,21 +199,13 @@ async function restoreRoles(interaction, userId, member) {
     if (skipped.tooHighForBot) notes.push(`${skipped.tooHighForBot} role(s) are above my role, so I cannot give them.`);
     if (skipped.missing) notes.push(`${skipped.missing} role(s) no longer exist.`);
 
-    await InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: 'Roles Restored',
-                description:
-                    `${member} got **${give.length}** role${give.length === 1 ? '' : 's'} back` +
-                    (skippedTotal ? ` (${skippedTotal} skipped).` : '.') +
-                    (notes.length ? `\n\n${notes.join('\n')}` : ''),
-                color: 'success',
-                thumbnail: member.user.displayAvatarURL?.({ size: 256 }) || null,
-                fields: [
-                    { name: 'Moderator', value: `${interaction.user}`, inline: true },
-                    { name: 'Given back', value: give.length ? give.map((r) => r.toString()).join(' ').slice(0, 1000) : 'none', inline: false },
-                ],
-            }),
-        ],
-    });
+    const roleList = give.length ? give.map((r) => `**${r.name}**`).join(', ') : '**none**';
+
+    await InteractionHelper.universalReply(
+        interaction,
+        infoPayload(
+            `${interaction.user}: Added roles to ${member}: ${roleList}` +
+            (notes.length ? `\n\n${notes.join('\n')}` : ''),
+        ),
+    );
 }

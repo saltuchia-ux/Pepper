@@ -14,6 +14,7 @@ import {
     closeJailTicket,
     clearJailRecord,
 } from '../../services/jailService.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 const MAX_REASON_LENGTH = 500;
 
@@ -65,24 +66,11 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.unjail @user reason`, `.unjail userID reason` or `.unjail username reason`.\n' +
-                        'Names with spaces go in quotes: `.unjail "John Smith"`.\n' +
-                        'The reason is optional.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'unjail');
         }
 
         if (!target.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('Member not found', 'I could not find that member in this server.')],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
@@ -94,11 +82,7 @@ export default {
 async function unjailMember(interaction, member, reason) {
     // Only people with the Timeout Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-        throw new TitanBotError(
-            'Missing Timeout Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Timeout Members** permission to use this command.',
-        );
+        throw missingPermission('timeout_members');
     }
 
     const guild = interaction.guild;
@@ -125,6 +109,7 @@ async function unjailMember(interaction, member, reason) {
             'Not jailed',
             ErrorTypes.VALIDATION,
             `${member} is not in jail.`,
+            { plain: true },
         );
     }
 

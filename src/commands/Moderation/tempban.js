@@ -17,6 +17,7 @@ import {
     sendPunishmentDm,
     buildBanDm,
 } from '../../utils/punishmentTools.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 // The longest temporary ban you can set
 const MAX_BAN_MINUTES = 365 * 24 * 60;
@@ -93,29 +94,17 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const usage =
-            'Use `.tempban @user 3 days reason`, `.tempban userID 1w reason` or `.tempban username 2d reason`.\n' +
-            'Names with spaces go in quotes: `.tempban "John Smith" 3d reason`.\n' +
-            'Time: `5min`, `10 minutes`, `2h`, `1 hour`, `3d`, `1 day`, `1w`, `1 week`.\n' +
-            'The time is needed, the reason is optional.';
-
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('User not found', usage)],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'tempban');
         }
 
         const rest = parts.slice(target.used);
         const parsed = parseDuration(rest);
 
         if (!parsed) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('Time needed', usage)],
-                ephemeral: true,
-            });
+            return syntaxReply(interaction, 'tempban');
         }
 
         // A user ID works even if the person is not in the server
@@ -125,10 +114,7 @@ export default {
             await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('User not found', 'I could not find a Discord user with that ID.')],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = rest.slice(parsed.used).join(' ') || DEFAULT_REASON;
@@ -141,11 +127,7 @@ export default {
 async function tempBanUser(interaction, client, user, minutes, reason) {
     // Only people with the Ban Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
-        throw new TitanBotError(
-            'Missing Ban Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Ban Members** permission to use this command.',
-        );
+        throw missingPermission('ban_members');
     }
 
     if (user.id === interaction.user.id) {
@@ -184,7 +166,8 @@ async function tempBanUser(interaction, client, user, minutes, reason) {
         throw new TitanBotError(
             'Ban too long',
             ErrorTypes.VALIDATION,
-            'A temporary ban can be at most **365 days**. Use `.ban` for a permanent ban.',
+            'You can only tempban for 1 year max.',
+            { plain: true },
         );
     }
 

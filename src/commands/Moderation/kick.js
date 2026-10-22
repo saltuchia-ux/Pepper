@@ -14,6 +14,8 @@ import {
     sendPunishmentDm,
     buildKickDm,
 } from '../../utils/punishmentTools.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
+import { boxPayload, COLORS } from '../../utils/replyStyle.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -76,29 +78,11 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.kick @user reason`, `.kick userID reason` or `.kick username reason`.\n' +
-                        'Names with spaces go in quotes: `.kick "John Smith" reason`.\n' +
-                        'The reason is optional.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'kick');
         }
 
         if (!target.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'Member not found',
-                        'I could not find that member in this server. Check the name or ID and make sure they have not left. '
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
@@ -111,11 +95,7 @@ export default {
 async function kickMember(interaction, client, user, member, reason) {
     // Only people with the Kick Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.KickMembers)) {
-        throw new TitanBotError(
-            'Missing Kick Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Kick Members** permission to use this command.',
-        );
+        throw missingPermission('kick_members');
     }
 
     if (!member) {
@@ -173,20 +153,10 @@ async function kickMember(interaction, client, user, member, reason) {
         throw error;
     }
 
-    await InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: '👢 Member Kicked',
-                description: `${user} has been kicked.`,
-                color: 'warning',
-                thumbnail: user.displayAvatarURL?.({ size: 256 }) || null,
-                fields: [
-                    { name: '🛡️ Moderator', value: `${interaction.user}`, inline: true },
-                    { name: '📝 Reason', value: reason, inline: true },
-                ],
-                footer: `Case #${result.caseId}`,
-                timestamp: true,
-            }),
-        ],
-    });
+    const reasonPart = reason && reason !== DEFAULT_REASON ? ` for ${reason}` : '';
+
+    await InteractionHelper.universalReply(
+        interaction,
+        boxPayload(COLORS.warning, `${user} has been kicked by ${interaction.user.username}${reasonPart}.`),
+    );
 }

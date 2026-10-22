@@ -3,6 +3,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { getPrefixText, errorBox } from '../../utils/punishmentTools.js';
 import { getDeletedMessages } from '../../services/snipeService.js';
+import { missingPermission, syntaxReply, plainReply } from '../../utils/punishmentTools.js';
 
 const MAX_TEXT = 4000;
 const EMBED_COLOR = 0x4e5058;
@@ -35,15 +36,7 @@ export default {
             .filter(Boolean);
 
         if (parts.length && !/^\d{1,4}$/.test(parts[0])) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'Wrong number',
-                        'Use `.s` for the newest deleted message, or `.s 2` for the one before it.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return syntaxReply(interaction, 's');
         }
 
         const number = parts.length ? parseInt(parts[0], 10) : 1;
@@ -77,38 +70,17 @@ function timeAgo(timestamp) {
 async function showSnipe(interaction, number) {
     // Only people with the Manage Messages permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-        throw new TitanBotError(
-            'Missing Manage Messages permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Manage Messages** permission to use this command.',
-        );
+        throw missingPermission('manage_messages');
     }
 
     const list = getDeletedMessages(interaction.channel.id);
 
     if (!list.length) {
-        return InteractionHelper.universalReply(interaction, {
-            embeds: [
-                errorBox(
-                    'Nothing to snipe',
-                    'There are no deleted messages saved for this channel.\n' +
-                    'Deleted messages are kept for 2 hours.'
-                ),
-            ],
-            ephemeral: true,
-        });
+        return plainReply(interaction, 'Nothing to snipe');
     }
 
     if (number > list.length) {
-        return InteractionHelper.universalReply(interaction, {
-            embeds: [
-                errorBox(
-                    'Not that many',
-                    `There ${list.length === 1 ? 'is only 1 deleted message' : `are only ${list.length} deleted messages`} saved for this channel.`
-                ),
-            ],
-            ephemeral: true,
-        });
+        return plainReply(interaction, `Only ${list.length} ${list.length === 1 ? 'deleted message' : 'deleted messages'} saved.`);
     }
 
     const entry = list[number - 1];

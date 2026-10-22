@@ -1,6 +1,9 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { takeUserFromEnd } from '../../utils/userResolver.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { missingPermissionPayload } from '../../utils/replyStyle.js';
+import { buildSyntaxText } from '../../config/commands/commandSyntax.js';
+import { getCommandPrefix } from '../../config/bot.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -45,11 +48,7 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const usage =
-            '❌ Usage: `.grole role name user`\n' +
-            'The user goes **last**: @mention, user ID, username or display name.\n' +
-            'Example: `.grole cool kids bob`\n' +
-            'Names with spaces go in quotes: `.grole cool kids "John Smith"`';
+        const usage = buildSyntaxText(getCommandPrefix(), 'grole');
 
         if (words.length < 2) {
             return InteractionHelper.universalReply(interaction, {
@@ -62,9 +61,7 @@ export default {
 
         if (!target || !target.member) {
             return InteractionHelper.universalReply(interaction, {
-                content:
-                    '❌ I could not find that user in this server.\n' +
-                    'Put the user **last**, as an @mention, user ID, username or display name.',
+                content: 'User not found',
                 ephemeral: true,
             });
         }
@@ -260,10 +257,7 @@ async function findRole(guild, text) {
 
 async function giveRole(interaction, suppliedRole = null, suppliedTarget = null) {
     if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return InteractionHelper.universalReply(interaction, {
-            content: '❌ You need **Manage Roles** permission to use `.grole`.',
-            ephemeral: true,
-        });
+        return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, 'manage_roles'));
     }
 
     const guild = interaction.guild;
@@ -316,7 +310,7 @@ async function giveRole(interaction, suppliedRole = null, suppliedTarget = null)
     if (botMember.roles.highest.position <= role.position) {
         return InteractionHelper.universalReply(interaction, {
             content:
-                `❌ I cannot manage ${role}.\n` +
+                `❌ I cannot manage **${role.name}**.\n` +
                 `My highest role: **${botMember.roles.highest.name}**\n` +
                 `My position: **${botMember.roles.highest.position}**\n` +
                 `Target position: **${role.position}**`,
@@ -333,7 +327,7 @@ async function giveRole(interaction, suppliedRole = null, suppliedTarget = null)
 
     if (target.roles.cache.has(role.id)) {
         return InteractionHelper.universalReply(interaction, {
-            content: `❌ ${target} already has ${role}.`,
+            content: `❌ ${target} already has **${role.name}**.`,
             ephemeral: true,
         });
     }
@@ -345,7 +339,7 @@ async function giveRole(interaction, suppliedRole = null, suppliedTarget = null)
         );
 
         return InteractionHelper.universalReply(interaction, {
-            content: `✅ Gave ${role} to ${target}.`,
+            content: `✅ Gave **${role.name}** to ${target}.`,
         });
     } catch (error) {
         console.error('GROLE ERROR:', error);
@@ -353,7 +347,7 @@ async function giveRole(interaction, suppliedRole = null, suppliedTarget = null)
         return InteractionHelper.universalReply(interaction, {
             content:
                 `❌ Discord rejected the role change.\n` +
-                `Error: \`${error.message}\``,
+                `Error: ${error.message}`,
             ephemeral: true,
         });
     }

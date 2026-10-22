@@ -7,6 +7,7 @@ import { WarningService } from '../../services/moderation/warningService.js';
 import { ModerationService } from '../../services/moderation/moderationService.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 const DEFAULT_REASON = 'No reason provided';
 const MAX_REASON_LENGTH = 500;
@@ -82,29 +83,11 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.warn @user reason`, `.warn userID reason` or `.warn username reason`.\n' +
-                        'Names with spaces go in quotes: `.warn "John Smith" reason`.\n' +
-                        'The reason is optional.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'warn');
         }
 
         if (!target.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'Member not found',
-                        'I could not find that member in this server. Check the name or ID and make sure they have not left.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
@@ -212,32 +195,24 @@ async function warnMember(interaction, client, target, member, reason) {
         }
     });
 
-    // Tell the user in a DM (silently skipped if their DMs are closed)
-    if (!target.bot) {
-        await sendWarningDm({
+    // Tell the user in a DM (true = sent, false = their DMs are closed)
+    const dmSent = target.bot
+        ? false
+        : await sendWarningDm({
             guild: interaction.guild,
             target,
             reason,
         });
-    }
 
-    const avatar = target.displayAvatarURL?.({ size: 256 });
+    // Plain message in the channel, like:
+    //   @user, you have been warned by modname for <reason>. Couldn't DM you more information.
+    const reasonText = reason === DEFAULT_REASON ? 'no reason' : reason;
 
     await InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: '⚠️ Member Warned',
-                description: `${target} has been warned.`,
-                color: 'warning',
-                thumbnail: avatar || null,
-                fields: [
-                    { name: '🛡️ Moderator', value: `${moderator}`, inline: true },
-                    { name: '📝 Reason', value: reason, inline: true },
-                ],
-                footer: `Warning ID: ${id}`,
-                timestamp: true,
-            }),
-        ],
+        content:
+            `${target}, you have been warned by ${moderator.username} for ${reasonText}.` +
+            (dmSent ? '' : " Couldn't DM you more information."),
+        allowedMentions: { users: [target.id] },
     });
 }
 

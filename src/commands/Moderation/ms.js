@@ -6,6 +6,7 @@ import { logger } from '../../utils/logger.js';
 import { takeUserFromWords } from '../../utils/userResolver.js';
 import * as moderation from '../../utils/moderation.js';
 import { getPrefixText, errorBox } from '../../utils/punishmentTools.js';
+import { syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -83,16 +84,7 @@ export default {
         const target = await takeUserFromWords(interaction.guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.ms` for your own stats, or `.ms @user`, `.ms userID` or `.ms username` for someone else.\n' +
-                        'Names with spaces go in quotes: `.ms "John Smith"`.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'ms');
         }
 
         // Works even if the moderator already left (use their ID)
@@ -102,10 +94,7 @@ export default {
             await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('User not found', 'I could not find a Discord user with that ID.')],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         return showStats(interaction, user);

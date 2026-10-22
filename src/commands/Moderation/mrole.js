@@ -4,6 +4,9 @@ import {
 } from 'discord.js';
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { missingPermissionPayload } from '../../utils/replyStyle.js';
+import { buildSyntaxText } from '../../config/commands/commandSyntax.js';
+import { getCommandPrefix } from '../../config/bot.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -95,7 +98,7 @@ async function createRole(interaction, isPrefix) {
 
     // BAN MEMBERS PERMISSION
     if (!interaction.member?.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return reply('❌ You need **Manage Roles** permission to use `.mrole`.');
+        return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, 'manage_roles'));
     }
 
     const guild = interaction.guild;
@@ -126,10 +129,7 @@ async function createRole(interaction, isPrefix) {
         const raw = getPrefixText(interaction);
 
         if (!raw) {
-            return reply(
-                '❌ Usage: `.mrole role name #color`\n' +
-                'Example: `.mrole 🔥 cool kids #ff0000`'
-            );
+            return reply(buildSyntaxText(getCommandPrefix(), 'mrole'));
         }
 
         ({ name, color } = splitNameAndColor(raw));
@@ -165,7 +165,7 @@ async function createRole(interaction, isPrefix) {
 
     if (color) {
         if (!/^#?[0-9A-Fa-f]{6}$/.test(color)) {
-            return reply('❌ Invalid color. Use a hex color like `#ff7527`.');
+            return reply('❌ Invalid color. Use a hex color like #ff7527.');
         }
 
         roleColor = color.startsWith('#') ? color : `#${color}`;
@@ -181,7 +181,7 @@ async function createRole(interaction, isPrefix) {
         });
 
         let response =
-            `✅ Created ${role} successfully!\n` +
+            `✅ Created **${role.name}** successfully!\n` +
             `🎨 **Name:** ${role.name}`;
 
         if (roleColor) {
@@ -197,7 +197,7 @@ async function createRole(interaction, isPrefix) {
         console.error('MROLE ERROR:', error);
 
         return reply(
-            `❌ I could not create the role.\n\`\`\`${error.message}\`\`\``
+            `❌ I could not create the role.\nError: ${error.message}`
         );
     }
 }

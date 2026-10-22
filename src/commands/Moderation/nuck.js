@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { missingPermissionPayload } from '../../utils/replyStyle.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -15,10 +16,7 @@ export default {
 
     async execute(interaction, config, client) {
         if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
-            return await InteractionHelper.universalReply(interaction, {
-                content: '❌ You need Administrator permission to use this command.',
-                ephemeral: true,
-            });
+            return await InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, 'administrator'));
         }
 
         const channel = interaction.channel;

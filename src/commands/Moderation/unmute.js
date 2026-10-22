@@ -12,6 +12,8 @@ import {
     sendPunishmentDm,
     buildUnmuteDm,
 } from '../../utils/punishmentTools.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
+import { boxPayload, COLORS } from '../../utils/replyStyle.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -77,29 +79,11 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.unmute @user reason`, `.unmute userID reason` or `.unmute username reason`.\n' +
-                        'Names with spaces go in quotes: `.unmute "John Smith" reason`.\n' +
-                        'The reason is optional.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'unmute');
         }
 
         if (!target.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'Member not found',
-                        'I could not find that member in this server. Check the name or ID and make sure they have not left.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
@@ -112,11 +96,7 @@ export default {
 async function unmuteMember(interaction, user, member, reason) {
     // Only people with the Timeout Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-        throw new TitanBotError(
-            'Missing Timeout Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Timeout Members** permission to use this command.',
-        );
+        throw missingPermission('timeout_members');
     }
 
     if (!member) {
@@ -146,19 +126,8 @@ async function unmuteMember(interaction, user, member, reason) {
     // Tell the user in a DM (silently skipped if their DMs are closed)
     await sendPunishmentDm(user, buildUnmuteDm({ guild: interaction.guild, reason }));
 
-    await InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: '🔊 Member Unmuted',
-                description: `${user} has been unmuted.`,
-                color: 'success',
-                thumbnail: user.displayAvatarURL?.({ size: 256 }) || null,
-                fields: [
-                    { name: '🛡️ Moderator', value: `${interaction.user}`, inline: true },
-                    { name: '📝 Reason', value: reason, inline: true },
-                ],
-                timestamp: true,
-            }),
-        ],
-    });
+    await InteractionHelper.universalReply(
+        interaction,
+        boxPayload(COLORS.success, `${user} has been unmuted.`),
+    );
 }

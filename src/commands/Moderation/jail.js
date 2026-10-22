@@ -16,6 +16,7 @@ import {
     panelChannelIdOf,
     saveJailRecord,
 } from '../../services/jailService.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 const MAX_REASON_LENGTH = 500;
 
@@ -67,24 +68,11 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.jail @user reason`, `.jail userID reason` or `.jail username reason`.\n' +
-                        'Names with spaces go in quotes: `.jail "John Smith" reason`.\n' +
-                        'The reason is optional.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'jail');
         }
 
         if (!target.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('Member not found', 'I could not find that member in this server.')],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(target.used).join(' ') || DEFAULT_REASON;
@@ -96,11 +84,7 @@ export default {
 async function jailMember(interaction, member, reason) {
     // Only people with the Timeout Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-        throw new TitanBotError(
-            'Missing Timeout Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Timeout Members** permission to use this command.',
-        );
+        throw missingPermission('timeout_members');
     }
 
     const guild = interaction.guild;
@@ -137,6 +121,7 @@ async function jailMember(interaction, member, reason) {
             'Already jailed',
             ErrorTypes.VALIDATION,
             `${member} is already in jail.`,
+            { plain: true },
         );
     }
 
@@ -144,7 +129,8 @@ async function jailMember(interaction, member, reason) {
         throw new TitanBotError(
             'Cannot manage member',
             ErrorTypes.PERMISSION,
-            'I cannot jail that person because their highest role is above my role.',
+            `You can't jail ${member}.`,
+            { plain: true },
         );
     }
 
@@ -211,19 +197,5 @@ async function jailMember(interaction, member, reason) {
     });
 
     // 6) answer the moderator
-    await InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: 'Member Jailed',
-                description: `${member} has been jailed.`,
-                color: 'error',
-                thumbnail: member.user.displayAvatarURL?.({ size: 256 }) || null,
-                fields: [
-                    { name: 'Moderator', value: `${interaction.user}`, inline: true },
-                    { name: 'Reason', value: reason, inline: true },
-                    { name: 'Roles saved', value: 'For 2 hours. Use `.role restore` to give them back.' },
-                ],
-            }),
-        ],
-    });
+    await InteractionHelper.universalReply(interaction, { content: '✅' });
 }

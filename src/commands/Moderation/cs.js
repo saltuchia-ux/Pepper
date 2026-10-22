@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { clearSnipes } from '../../services/snipeService.js';
+import { missingPermission } from '../../utils/punishmentTools.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -24,11 +25,7 @@ export default {
 async function clearHistory(interaction) {
     // Only people with the Manage Messages permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-        throw new TitanBotError(
-            'Missing Manage Messages permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Manage Messages** permission to use this command.',
-        );
+        throw missingPermission('manage_messages');
     }
 
     clearSnipes(interaction.channel.id);

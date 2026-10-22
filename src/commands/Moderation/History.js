@@ -16,6 +16,7 @@ import {
 } from '../../utils/moderation.js';
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 const DEFAULT_REASON = 'No reason provided';
 const ENTRIES_PER_PAGE = 5;
@@ -85,17 +86,7 @@ export default {
         const target = await takeUserFromWords(interaction.guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.hs` for your own history, or `.hs @user`, `.hs userID` or `.hs username` for someone else.\n' +
-                        'Names with spaces go in quotes: `.hs "John Smith"`.\n' +
-                        'Example: `.hs 123456789012345678`'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'hs');
         }
 
         // Works even if the person already left or was banned (use their ID)
@@ -105,10 +96,7 @@ export default {
             await discordClient.users.fetch(target.id).catch(() => null);
 
         if (!user) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('User not found', 'I could not find a Discord user with that ID.')],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const pageWord = parts[target.used] || '';

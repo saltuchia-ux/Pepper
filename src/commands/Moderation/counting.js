@@ -11,6 +11,9 @@ import {
     getCountingGameConfig,
     saveCountingGameConfig,
 } from '../../services/countingGameService.js';
+import { missingPermissionPayload } from '../../utils/replyStyle.js';
+import { buildSyntaxText } from '../../config/commands/commandSyntax.js';
+import { getCommandPrefix } from '../../config/bot.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -68,10 +71,7 @@ export default {
                 PermissionFlagsBits.Administrator
             )
         ) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ Only **Administrators** can use this command.',
-                ephemeral: true,
-            });
+            return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, 'administrator'));
         }
 
         if (subcommand === 'setup') {
@@ -118,10 +118,7 @@ export default {
                 PermissionFlagsBits.Administrator
             )
         ) {
-            return InteractionHelper.universalReply(interaction, {
-                content: '❌ Only **Administrators** can use this command.',
-                ephemeral: true,
-            });
+            return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, 'administrator'));
         }
 
         const content = message.content?.trim() || '';
@@ -136,15 +133,7 @@ export default {
         const subcommand = parts[1]?.toLowerCase();
 
         if (!subcommand) {
-            return InteractionHelper.universalReply(interaction, {
-                content:
-                    '❌ Usage:\n' +
-                    '`.counting setup #channel`\n' +
-                    '`.counting status`\n' +
-                    '`.counting reset`\n' +
-                    '`.counting disable`',
-                ephemeral: true,
-            });
+            return InteractionHelper.universalReply(interaction, { content: buildSyntaxText(getCommandPrefix(), 'counting'), ephemeral: true });
         }
 
         // =========================
@@ -217,16 +206,7 @@ export default {
             );
         }
 
-        return InteractionHelper.universalReply(interaction, {
-            content:
-                '❌ Unknown counting command.\n\n' +
-                'Use:\n' +
-                '`.counting setup #channel`\n' +
-                '`.counting status`\n' +
-                '`.counting reset`\n' +
-                '`.counting disable`',
-            ephemeral: true,
-        });
+        return InteractionHelper.universalReply(interaction, { content: buildSyntaxText(getCommandPrefix(), 'counting'), ephemeral: true });
     },
 };
 

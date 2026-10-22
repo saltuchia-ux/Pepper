@@ -10,6 +10,8 @@ import {
     cleanNickText,
     assertCanChangeNick,
 } from '../../utils/forcedNick.js';
+import { syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
+import { successPayload } from '../../utils/replyStyle.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -54,17 +56,7 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target?.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.nick @user New Name`, `.nick userID New Name` or `.nick username New Name`.\n' +
-                        'Names with spaces go in quotes: `.nick "John Smith" New Name`.\n' +
-                        'Leave the name out to reset the nickname.',
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'nick');
         }
 
         const nickname = cleanNickText(parts.slice(target.used).join(' '));
@@ -98,20 +90,12 @@ async function changeNick(interaction, member, nickname) {
 
     await member.setNickname(nickname || null, `Nickname changed by ${interaction.user.tag}`);
 
-    return InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: nickname ? 'Nickname Changed' : 'Nickname Reset',
-                description: nickname
-                    ? `${member}'s nickname is now **${nickname}**.`
-                    : `${member}'s nickname was reset.`,
-                color: 'success',
-                fields: [
-                    { name: 'Before', value: before, inline: true },
-                    { name: 'By', value: `${interaction.user}`, inline: true },
-                ],
-                timestamp: true,
-            }),
-        ],
-    });
+    return InteractionHelper.universalReply(
+        interaction,
+        successPayload(
+            nickname
+                ? `${interaction.user}: Changed **${member.user.username}**'s nickname to \`${nickname}\``
+                : `${interaction.user}: Reset **${member.user.username}**'s nickname`,
+        ),
+    );
 }

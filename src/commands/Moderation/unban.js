@@ -14,6 +14,7 @@ import {
     sendPunishmentDm,
     buildUnbanDm,
 } from '../../utils/punishmentTools.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -78,25 +79,13 @@ export default {
             'The reason is optional. The name is searched in the server ban list.';
 
         if (!parts.length) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [errorBox('Who should I unban?', usage)],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'unban');
         }
 
         const found = await takeBannedUserFromWords(guild, parts);
 
         if (!found) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'Banned user not found',
-                        'I could not find a banned user with that name or ID.\n' +
-                        'Check the ban list in Server Settings > Bans, or use their user ID.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const reason = parts.slice(found.used).join(' ') || DEFAULT_REASON;
@@ -109,11 +98,7 @@ export default {
 async function unbanUser(interaction, user, reason) {
     // Only people with the Ban Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
-        throw new TitanBotError(
-            'Missing Ban Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Ban Members** permission to use this command.',
-        );
+        throw missingPermission('ban_members');
     }
 
     if (reason.length > MAX_REASON_LENGTH) {

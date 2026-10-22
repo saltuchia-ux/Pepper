@@ -16,6 +16,8 @@ import {
     sendPunishmentDm,
     buildTimeoutDm,
 } from '../../utils/punishmentTools.js';
+import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
+import { boxPayload, COLORS } from '../../utils/replyStyle.js';
 
 // Used when you do not type a time:  .mute @user
 const DEFAULT_TIMEOUT_MINUTES = 10;
@@ -115,30 +117,11 @@ export default {
         const target = await takeUserFromWords(guild, parts);
 
         if (!target) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'User not found',
-                        'Use `.mute @user 10m reason`, `.mute userID 1 hour reason` or `.mute username 5min reason`.\n' +
-                        'Names with spaces go in quotes: `.mute "John Smith" 10m reason`.\n' +
-                        'Time: `5min`, `10 minutes`, `2h`, `1 hour`, `3d`, `1 day`, `1w`, `1 week`.\n' +
-                        `The time and the reason are optional (default time: ${DEFAULT_TIMEOUT_MINUTES} minutes).`
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'mute');
         }
 
         if (!target.member) {
-            return InteractionHelper.universalReply(interaction, {
-                embeds: [
-                    errorBox(
-                        'Member not found',
-                        'I could not find that member in this server. Check the name or ID and make sure they have not left.'
-                    ),
-                ],
-                ephemeral: true,
-            });
+            return userNotFoundReply(interaction);
         }
 
         const rest = parts.slice(target.used);
@@ -156,11 +139,7 @@ export default {
 async function timeoutMember(interaction, client, user, member, minutes, reason, usedDefaultTime) {
     // Only people with the Timeout Members permission can use this
     if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-        throw new TitanBotError(
-            'Missing Timeout Members permission',
-            ErrorTypes.PERMISSION,
-            'You need the **Timeout Members** permission to use this command.',
-        );
+        throw missingPermission('timeout_members');
     }
 
     if (!member) {
@@ -227,21 +206,13 @@ async function timeoutMember(interaction, client, user, member, minutes, reason,
 
     const timeText = formatDuration(minutes) + (usedDefaultTime ? ' (default)' : '');
 
-    await InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                title: '🔇 Member Muted',
-                description: `${user} has been muted.`,
-                color: 'warning',
-                thumbnail: user.displayAvatarURL?.({ size: 256 }) || null,
-                fields: [
-                    { name: '⏱️ Time', value: timeText, inline: true },
-                    { name: '🛡️ Moderator', value: `${interaction.user}`, inline: true },
-                    { name: '📝 Reason', value: reason },
-                ],
-                footer: `Case #${result.caseId}`,
-                timestamp: true,
-            }),
-        ],
-    });
+    const reasonPart = reason && reason !== DEFAULT_REASON ? ` for ${reason}` : '';
+
+    await InteractionHelper.universalReply(
+        interaction,
+        boxPayload(
+            COLORS.warning,
+            `${user} has been muted for ${formatDuration(minutes)} by ${interaction.user.username}${reasonPart}.`,
+        ),
+    );
 }
