@@ -36,7 +36,7 @@ async function showBirthday(interaction, user, client) {
 
     if (!data) {
         const text = isSelf
-            ? `${user}: You have not set your birthday yet. Use \`${getCommandPrefix()}birthday set (date)\``
+            ? `${user}: You have not set your birthday yet. Use \`${getCommandPrefix()}bday set (date)\``
             : `${user}: has not set their birthday yet.`;
 
         return InteractionHelper.universalReply(interaction, rawBoxPayload(COLORS.info, text));
