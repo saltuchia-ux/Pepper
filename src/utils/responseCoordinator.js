@@ -2,8 +2,7 @@
 
 import { buildUserErrorEmbed } from './embeds.js';
 import { logger } from './logger.js';
-import { buildSyntaxText } from '../config/commands/commandSyntax.js';
-import { plainPayload } from './replyStyle.js';
+import { buildHelpPayload } from './commandHelp.js';
 
 function getCommandJson(commandData) {
   return commandData?.toJSON ? commandData.toJSON() : commandData;
@@ -193,16 +192,22 @@ export class ResponseCoordinator {
   }
 
   async respondUsageFromCommand(prefix, commandData, validation) {
-    // Commands with saved syntax get the short plain message
-    const syntax = buildSyntaxText(prefix, getCommandJson(commandData)?.name);
+    // Every command gets the guide box: saved syntax if there is one, otherwise made from the command itself
+    const commandJson = getCommandJson(commandData);
+    const key = [commandJson?.name, validation?.subcommandGroupName, validation?.subcommandName]
+      .filter(Boolean)
+      .join(' ');
 
-    if (syntax) {
-      const result = await this.respond(plainPayload(syntax));
-      this.markFinalized('usage');
-      return result;
-    }
+    const result = await this.respond(
+      buildHelpPayload({
+        client: this.interaction.client,
+        prefix,
+        key,
+        usageLine: buildPrefixUsage(prefix, commandData, validation),
+      })
+    );
 
-    const usageLine = buildPrefixUsage(prefix, commandData, validation);
-    return this.respondUsage(usageLine);
+    this.markFinalized('usage');
+    return result;
   }
 }

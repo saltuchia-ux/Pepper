@@ -207,7 +207,7 @@ export async function executePrefixCommand(command, message, args, client, prefi
     }
 
     const validation = mockInteraction.options.validateRequired();
-    if (!validation.valid) {
+    if (!validation.valid && !command.customPrefixValidation) {
       await coordinator.respondUsageFromCommand(prefix, command.data, validation);
       return;
     }

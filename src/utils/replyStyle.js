@@ -21,6 +21,14 @@ export function plainPayload(text, { ping = false } = {}) {
         : { content: text, allowedMentions: { parse: [] } };
 }
 
+// Same as boxPayload, but keeps emojis (the normal embed text cleaner removes them)
+export function rawBoxPayload(color, text) {
+    const embed = new EmbedBuilder().setColor(color);
+    embed.data.description = text;
+
+    return { embeds: [embed] };
+}
+
 export function boxPayload(color, text) {
     return {
         embeds: [new EmbedBuilder().setColor(color).setDescription(text)],

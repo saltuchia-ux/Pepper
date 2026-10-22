@@ -1,3 +1,4 @@
+import { buildHelpPayload } from './commandHelp.js';
 import { PermissionFlagsBits, ChannelType } from 'discord.js';
 import { createEmbed } from './embeds.js';
 import { logger } from './logger.js';
@@ -75,10 +76,14 @@ export function plainReply(interaction, text) {
 
 // "Syntax: .ban (user) (reason)  /  Example: .ban John annoying"
 export function syntaxReply(interaction, commandName) {
-    const text = buildSyntaxText(getCommandPrefix(), commandName)
-        ?? `Wrong usage. Try ${getCommandPrefix()}help ${commandName}`;
-
-    return plainReply(interaction, text);
+    return InteractionHelper.universalReply(
+        interaction,
+        buildHelpPayload({
+            client: interaction.client,
+            prefix: getCommandPrefix(),
+            key: commandName,
+        }),
+    );
 }
 
 // Short "User not found"
