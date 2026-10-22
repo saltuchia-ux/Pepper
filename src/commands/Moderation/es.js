@@ -1,11 +1,11 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { createEmbed } from '../../utils/embeds.js';
+import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { getPrefixText, errorBox } from '../../utils/punishmentTools.js';
 import { getEditedMessages } from '../../services/snipeService.js';
 
-const MAX_TEXT = 1000;
+const MAX_TEXT = 4000;
+const EMBED_COLOR = 0x4e5058;
 
 export default {
     data: new SlashCommandBuilder()
@@ -52,10 +52,26 @@ export default {
     },
 };
 
-function cut(text) {
-    const value = text || '*(empty)*';
+// 5 minutes ago, 2 hours ago, ...
+function timeAgo(timestamp) {
+    const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
 
-    return value.length > MAX_TEXT ? `${value.slice(0, MAX_TEXT - 1)}…` : value;
+    if (seconds < 10) return 'just now';
+
+    const units = [
+        ['day', 86400],
+        ['hour', 3600],
+        ['minute', 60],
+        ['second', 1],
+    ];
+
+    for (const [name, size] of units) {
+        const count = Math.floor(seconds / size);
+
+        if (count >= 1) return `${count} ${name}${count === 1 ? '' : 's'} ago`;
+    }
+
+    return 'just now';
 }
 
 async function showEditSnipe(interaction, number) {
@@ -97,22 +113,26 @@ async function showEditSnipe(interaction, number) {
 
     const entry = list[number - 1];
 
-    const editedAt = Math.floor(entry.editedAt / 1000);
+    // Only the text from BEFORE the edit, exactly as it was written
+    const description = (entry.before || '*(empty)*').slice(0, MAX_TEXT);
+
+    // Built directly (not with createEmbed) so it looks the same as .s
+    const data = {
+        color: EMBED_COLOR,
+        author: {
+            name: entry.authorName,
+            ...(entry.avatarURL ? { icon_url: entry.avatarURL } : {}),
+        },
+        description,
+        footer: {
+            text: `Edited ${timeAgo(entry.editedAt)} • ${number}/${list.length} message${list.length === 1 ? '' : 's'}`,
+            ...(interaction.guild?.iconURL?.({ size: 64 })
+                ? { icon_url: interaction.guild.iconURL({ size: 64 }) }
+                : {}),
+        },
+    };
 
     return InteractionHelper.universalReply(interaction, {
-        embeds: [
-            createEmbed({
-                description: `[Jump to message](${entry.url})`,
-                color: 'primary',
-                author: { name: entry.authorName, iconURL: entry.avatarURL || undefined },
-                fields: [
-                    { name: '📝 Before', value: cut(entry.before) },
-                    { name: '✏️ After', value: cut(entry.after) },
-                    { name: '🕒 Edited', value: `<t:${editedAt}:R>`, inline: true },
-                ],
-                footer: `Edited message ${number} of ${list.length}`,
-                timestamp: true,
-            }),
-        ],
+        embeds: [new EmbedBuilder(data)],
     });
 }
