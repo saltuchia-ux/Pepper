@@ -73,13 +73,8 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const usage =
-            'Use `.unban userID reason` or `.unban username reason`.\n' +
-            'Names with spaces go in quotes: `.unban "John Smith" reason`.\n' +
-            'The reason is optional. The name is searched in the server ban list.';
-
         if (!parts.length) {
-            return parts.length ? userNotFoundReply(interaction) : syntaxReply(interaction, 'unban');
+            return syntaxReply(interaction, 'unban');
         }
 
         const found = await takeBannedUserFromWords(guild, parts);

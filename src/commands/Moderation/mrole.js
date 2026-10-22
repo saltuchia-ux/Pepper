@@ -5,8 +5,7 @@ import {
 
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { missingPermissionPayload } from '../../utils/replyStyle.js';
-import { buildSyntaxText } from '../../config/commands/commandSyntax.js';
-import { getCommandPrefix } from '../../config/bot.js';
+import { syntaxReply } from '../../utils/punishmentTools.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -129,7 +128,7 @@ async function createRole(interaction, isPrefix) {
         const raw = getPrefixText(interaction);
 
         if (!raw) {
-            return reply(buildSyntaxText(getCommandPrefix(), 'mrole'));
+            return syntaxReply(interaction, 'mrole');
         }
 
         ({ name, color } = splitNameAndColor(raw));

@@ -2,8 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { takeUserFromEnd } from '../../utils/userResolver.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { missingPermissionPayload } from '../../utils/replyStyle.js';
-import { buildSyntaxText } from '../../config/commands/commandSyntax.js';
-import { getCommandPrefix } from '../../config/bot.js';
+import { syntaxReply } from '../../utils/punishmentTools.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -48,13 +47,9 @@ export default {
             .split(/\s+/)
             .filter(Boolean);
 
-        const usage = buildSyntaxText(getCommandPrefix(), 'trole');
 
         if (words.length < 2) {
-            return InteractionHelper.universalReply(interaction, {
-                content: usage,
-                ephemeral: true,
-            });
+            return syntaxReply(interaction, 'trole');
         }
 
         const target = await takeUserFromEnd(guild, words);
@@ -69,10 +64,7 @@ export default {
         const roleText = words.slice(0, words.length - target.used).join(' ').trim();
 
         if (!roleText) {
-            return InteractionHelper.universalReply(interaction, {
-                content: usage,
-                ephemeral: true,
-            });
+            return syntaxReply(interaction, 'trole');
         }
 
         const { role, error } = await findRole(guild, roleText);

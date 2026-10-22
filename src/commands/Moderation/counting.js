@@ -12,8 +12,7 @@ import {
     saveCountingGameConfig,
 } from '../../services/countingGameService.js';
 import { missingPermissionPayload } from '../../utils/replyStyle.js';
-import { buildSyntaxText } from '../../config/commands/commandSyntax.js';
-import { getCommandPrefix } from '../../config/bot.js';
+import { syntaxReply } from '../../utils/punishmentTools.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -133,7 +132,7 @@ export default {
         const subcommand = parts[1]?.toLowerCase();
 
         if (!subcommand) {
-            return InteractionHelper.universalReply(interaction, { content: buildSyntaxText(getCommandPrefix(), 'counting'), ephemeral: true });
+            return syntaxReply(interaction, 'counting');
         }
 
         // =========================
@@ -206,7 +205,7 @@ export default {
             );
         }
 
-        return InteractionHelper.universalReply(interaction, { content: buildSyntaxText(getCommandPrefix(), 'counting'), ephemeral: true });
+        return syntaxReply(interaction, 'counting');
     },
 };
 
