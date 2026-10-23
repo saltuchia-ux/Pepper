@@ -107,9 +107,14 @@ async function reply(interaction, payload) {
 }
 
 async function run(interaction) {
-    if (!isBotOwner(interaction.user?.id)) {
+    const member = interaction.member;
+    const allowed = isBotOwner(interaction.user?.id)
+        || member?.guild?.ownerId === member?.id
+        || member?.permissions?.has?.(PermissionFlagsBits.Administrator);
+
+    if (!allowed) {
         await InteractionHelper.safeReply(interaction, {
-            content: 'Only the bot owner can use this command.',
+            content: 'You need the Administrator permission to use this command.',
             flags: MessageFlags.Ephemeral,
             allowedMentions: { parse: [] },
         });
@@ -254,7 +259,7 @@ async function run(interaction) {
 export default {
     data: new SlashCommandBuilder()
         .setName('messages')
-        .setDescription('Owner only: see and edit every message the bot sends')
+        .setDescription('Admins only: see and edit every message the bot sends')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addSubcommand((sub) => sub
             .setName('list')
