@@ -234,12 +234,20 @@ function helpEmbed(interaction, name) {
     return InteractionHelper.universalReply(interaction, { embeds: [embed] });
 }
 
+// Plain text that pings ONLY the person who used the command (never the person being looked up)
+function pingSender(interaction, text) {
+    return InteractionHelper.universalReply(interaction, {
+        content: text,
+        allowedMentions: { users: [interaction.user.id] },
+    });
+}
+
 async function showTime(interaction, targetId) {
     const you = targetId === interaction.user.id;
     const zone = await getFromDb(key(targetId), null);
 
     if (!zone || !isValidZone(zone)) {
-        return plainReply(
+        return pingSender(
             interaction,
             you
                 ? `⚠️ <@${interaction.user.id}>: You haven't set your timezone. Use \`.tz set (location)\``
@@ -249,7 +257,7 @@ async function showTime(interaction, targetId) {
 
     const time = formatTime(zone);
 
-    return sendBox(
+    return pingSender(
         interaction,
         `⏰ <@${interaction.user.id}>: ${you ? 'Your' : `<@${targetId}>'s`} current time is **${time}**`,
     );
