@@ -1,11 +1,71 @@
 // memoryStorage.js
 
+import fs from 'fs';
+import path from 'path';
 import { logger } from './logger.js';
 
 class MemoryStorage {
-    constructor() {
+    // Pass { file: 'path/to/file.json' } to keep the data in a file, so it survives restarts.
+    constructor({ file = null } = {}) {
         this.data = new Map();
         this.expirationTimes = new Map();
+        this.file = file ? path.resolve(file) : null;
+        this.writeTimer = null;
+
+        if (this.file) {
+            this.loadFromFile();
+            process.once('exit', () => this.writeFileNow());
+        }
+    }
+
+    loadFromFile() {
+        try {
+            if (!fs.existsSync(this.file)) return;
+
+            const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+            const now = Date.now();
+
+            for (const [key, value] of Object.entries(saved.data ?? {})) {
+                const expires = saved.expires?.[key];
+                if (expires && now > expires) continue; // already expired
+                this.data.set(key, value);
+                if (expires) this.expirationTimes.set(key, expires);
+            }
+
+            logger.info(`Loaded ${this.data.size} saved entries from ${this.file}`);
+        } catch (error) {
+            logger.error(`Could not read saved data file ${this.file} (starting empty):`, error);
+        }
+    }
+
+    writeFileNow() {
+        if (!this.file) return;
+
+        try {
+            fs.mkdirSync(path.dirname(this.file), { recursive: true });
+
+            const payload = JSON.stringify({
+                data: Object.fromEntries(this.data),
+                expires: Object.fromEntries(this.expirationTimes),
+            });
+
+            // Write to a temp file first so a crash can never leave a half-written save file.
+            const temp = `${this.file}.tmp`;
+            fs.writeFileSync(temp, payload);
+            fs.renameSync(temp, this.file);
+        } catch (error) {
+            logger.error(`Could not save data file ${this.file}:`, error);
+        }
+    }
+
+    schedulePersist() {
+        if (!this.file || this.writeTimer) return;
+
+        this.writeTimer = setTimeout(() => {
+            this.writeTimer = null;
+            this.writeFileNow();
+        }, 500);
+        this.writeTimer.unref?.();
     }
 
     async get(key, defaultValue = null) {
@@ -29,13 +89,15 @@ class MemoryStorage {
         if (ttl && ttl > 0) {
             this.expirationTimes.set(key, Date.now() + (ttl * 1000));
         }
-        
+
+        this.schedulePersist();
         return true;
     }
 
     async delete(key) {
         this.data.delete(key);
         this.expirationTimes.delete(key);
+        this.schedulePersist();
         return true;
     }
 
@@ -89,6 +151,7 @@ class MemoryStorage {
     async clear() {
         this.data.clear();
         this.expirationTimes.clear();
+        this.schedulePersist();
         return true;
     }
 }
