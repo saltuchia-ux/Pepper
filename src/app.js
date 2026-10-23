@@ -6,6 +6,7 @@ import cron from 'node-cron';
 
 import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
+import { installMessageHook, loadMessageEditor } from './services/messageEditorService.js';
 import { getGuildConfig } from './services/config/guildConfig.js';
 import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
 import { logger, startupLog, shutdownLog } from './utils/logger.js';
@@ -73,6 +74,10 @@ class TitanBot extends Client {
         startupLog(`✅ Database Status: ${dbStatus.connectionType} (fully operational)`);
       }
       
+      // Lets the owner see/edit every message the bot sends (/messages command)
+      installMessageHook();
+      await loadMessageEditor();
+
       startupLog('Starting web server...');
       this.startWebServer();
       
