@@ -46,11 +46,14 @@ class DatabaseWrapper {
             }
         }
 
-        this.db = new MemoryStorage();
+        // No PostgreSQL: keep data in a file so it still survives restarts and updates.
+        this.db = new MemoryStorage({
+            file: process.env.FALLBACK_DATA_FILE || './data/bot-data.json',
+        });
         this.useFallback = true;
         this.connectionType = 'memory';
         this.degradedReason = 'POSTGRES_UNAVAILABLE';
-        logger.warn('⚠️ DATABASE DEGRADED MODE ENABLED - Using in-memory storage (data will be lost on restart)');
+        logger.warn('⚠️ DATABASE DEGRADED MODE ENABLED - Using in-memory storage (saving to a file; add PostgreSQL for safer storage)');
         logger.warn('⚠️ Please check PostgreSQL connection and restart the bot when fixed');
         this.initialized = true;
         this.degradedModeWarningShown = true;
