@@ -20,7 +20,11 @@ export const BOOST_DEFAULTS = {
     color: 0x000000,
 
     // The gifts list
-    gifts: ['Server Booster Role', 'Custom Role'],
+    gifts: ['Server Booster Role', 'Boost Media Perms', 'Custom Role'],
+
+    // Roles the bot gives the booster automatically (paste role IDs).
+    // The bot's own role must be ABOVE these roles in Server Settings > Roles.
+    giveRoleIds: ['1563371913256898672'],
 
     // Small grey text at the bottom
     smallNote: 'To get your Custom Role, make a ticket',
