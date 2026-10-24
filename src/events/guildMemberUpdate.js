@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { enforceForcedNick } from '../utils/forcedNick.js';
+import { sendBoostThanks } from '../services/boostService.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -10,6 +11,11 @@ export default {
   async execute(oldMember, newMember) {
     try {
       if (!newMember.guild) return;
+
+      // Someone just boosted the server -> thank them
+      if (!oldMember.partial && !oldMember.premiumSince && newMember.premiumSince) {
+        await sendBoostThanks(newMember);
+      }
 
       if (oldMember.nickname !== newMember.nickname) {
         await enforceForcedNick(newMember);
