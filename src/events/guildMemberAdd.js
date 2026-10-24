@@ -1,8 +1,15 @@
-import { Events, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { Events, EmbedBuilder, PermissionFlagsBits, ChannelType, resolveColor } from 'discord.js';
+import { WELCOME_DEFAULTS } from '../config/welcomeDefaults.js';
 import { getColor, botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { getWelcomeConfig } from '../utils/database.js';
-import { formatWelcomeMessage } from '../utils/welcome.js';
+import {
+  formatWelcomeMessage,
+  isStockWelcomeMessage,
+  RICH_WELCOME_TEMPLATE,
+  RICH_WELCOME_COLOR,
+  RICH_WELCOME_TITLE,
+} from '../utils/welcome.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { setBirthday as dbSetBirthday } from '../utils/database.js';
@@ -23,9 +30,23 @@ export default {
         
         const welcomeConfig = await getWelcomeConfig(member.client, guild.id);
         
-        const welcomeChannelId = welcomeConfig?.channelId;
+        let welcomeChannelId = welcomeConfig?.channelId;
+        let welcomeEnabled = welcomeConfig?.enabled;
 
-        if (welcomeConfig?.enabled && welcomeChannelId) {
+        // Never set up in this server -> use the built-in default channel (see welcomeDefaults.js).
+        if (!welcomeChannelId && WELCOME_DEFAULTS.enabled) {
+            const wanted = WELCOME_DEFAULTS.channelName.toLowerCase();
+            const fallback = guild.channels.cache.find((c) =>
+                c.type === ChannelType.GuildText
+                && c.name.toLowerCase().replace(/[^a-z0-9]/g, '') === wanted
+            );
+            if (fallback) {
+                welcomeChannelId = fallback.id;
+                welcomeEnabled = true;
+            }
+        }
+
+        if (welcomeEnabled && welcomeChannelId) {
             const channel = guild.channels.cache.get(welcomeChannelId);
             const me = guild.members.me;
             const permissions = channel?.isTextBased?.() && me ? channel.permissionsFor(me) : null;
@@ -33,15 +54,26 @@ export default {
             // join pipeline (auto-role, verification, logging, counters) must still run.
             if (permissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
                 const formatData = { user, guild, member };
+
+                const rawTemplate = welcomeConfig.welcomeMessage
+                    || welcomeConfig.welcomeEmbed?.description
+                    || botConfig.welcome?.defaultWelcomeMessage;
+
+                // No custom message saved -> use the full welcome (boost info, rules, join position).
+                const useRich = isStockWelcomeMessage(rawTemplate);
+
                 const welcomeMessage = formatWelcomeMessage(
-                    welcomeConfig.welcomeMessage || welcomeConfig.welcomeEmbed?.description || botConfig.welcome?.defaultWelcomeMessage || 'Welcome {user} to {server}!',
+                    useRich ? RICH_WELCOME_TEMPLATE : rawTemplate,
                     formatData
                 );
 
-                const messageContent = welcomeConfig.welcomePing ? user.toString() : null;
+                // The mention must be in the message text (not the embed) for the user to get a ping.
+                const mention = user.toString();
+                const messageContent = mention;
+                const allowedMentions = { parse: [], users: [user.id] };
 
                 const embedTitle = formatWelcomeMessage(
-                    welcomeConfig.welcomeEmbed?.title || '🎉 Welcome!',
+                    useRich ? RICH_WELCOME_TITLE : (welcomeConfig.welcomeEmbed?.title || '🎉 Welcome!'),
                     formatData
                 );
                 const embedFooter = welcomeConfig.welcomeEmbed?.footer
@@ -52,30 +84,48 @@ export default {
 
                 if (!canEmbed) {
                     await channel.send({
-                        content: messageContent || welcomeMessage
+                        content: welcomeMessage.includes(mention) ? welcomeMessage : `${mention} ${welcomeMessage}`,
+                        allowedMentions
                     });
                 } else {
-                    const embed = new EmbedBuilder()
-                        .setColor(welcomeConfig.welcomeEmbed?.color || getColor('success'))
-                        .setTitle(embedTitle)
-                        .setDescription(welcomeMessage)
-                        .setThumbnail(user.displayAvatarURL())
-                        .addFields(
-                            { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
-                            { name: 'Member Count', value: guild.memberCount.toString(), inline: true }
-                        )
-                        .setTimestamp()
-                        .setFooter({ text: embedFooter });
-                    
-                    if (welcomeConfig.welcomeImage) {
-                        embed.setImage(welcomeConfig.welcomeImage);
-                    } else if (welcomeConfig.welcomeEmbed?.image?.url) {
-                        embed.setImage(welcomeConfig.welcomeEmbed.image.url);
+                    const joinedTs = Math.floor((member.joinedTimestamp ?? Date.now()) / 1000);
+
+                    // Plain embed object (not EmbedBuilder) so emojis are kept; the bot's
+                    // normal embeds strip them.
+                    const embed = {
+                        // Raw embed objects need a number, so convert hex strings like '#57F287'.
+                        color: resolveColor(useRich
+                            ? RICH_WELCOME_COLOR
+                            : (welcomeConfig.welcomeEmbed?.color || getColor('success'))),
+                        title: embedTitle,
+                        description: welcomeMessage,
+                        thumbnail: { url: user.displayAvatarURL() },
+                    };
+
+                    if (useRich) {
+                        // Footer shows: "Server position #N • Today at 8:32 PM". Discord turns the timestamp
+                        // into "Today at ..." -> "Yesterday at ..." -> "10/15/2026 ..." by itself.
+                        embed.footer = { text: `👥 Server position #${guild.memberCount}` };
+                        embed.timestamp = new Date(member.joinedTimestamp ?? Date.now()).toISOString();
+                    } else {
+                        // Custom messages keep the extra fields and footer.
+                        embed.fields = [
+                            { name: '📅 Joined', value: `<t:${joinedTs}:D>`, inline: true },
+                            { name: '👥 Join Position', value: `#${guild.memberCount}`, inline: true },
+                        ];
+                        embed.footer = { text: embedFooter };
                     }
-                    
+
+                    if (welcomeConfig.welcomeImage) {
+                        embed.image = { url: welcomeConfig.welcomeImage };
+                    } else if (welcomeConfig.welcomeEmbed?.image?.url) {
+                        embed.image = { url: welcomeConfig.welcomeEmbed.image.url };
+                    }
+
                     await channel.send({ 
                         content: messageContent,
-                        embeds: [embed] 
+                        embeds: [embed],
+                        allowedMentions
                     });
                 }
             }
