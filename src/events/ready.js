@@ -6,6 +6,7 @@ import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRo
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startTempBanChecker } from "../services/tempBanService.js";
+import { syncAllRoleLinks } from "../services/roleLinkService.js";
 
 export default {
   name: Events.ClientReady,
@@ -18,6 +19,9 @@ export default {
       startupLog(`Ready! Logged in as ${client.user.tag}`);
       startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
       startupLog(`Loaded ${client.commands.size} commands`);
+
+      // Give linked roles to people who already have the trigger role (runs in the background)
+      syncAllRoleLinks(client).catch((error) => logger.error('Role link startup sync failed:', error));
 
       if (client.config?.features?.music) {
         initRiffyAfterReady(client);

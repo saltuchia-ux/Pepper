@@ -2,7 +2,7 @@ import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { enforceForcedNick } from '../utils/forcedNick.js';
-import { sendBoostThanks } from '../services/boostService.js';
+import { applyRoleLinks } from '../services/roleLinkService.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -12,10 +12,8 @@ export default {
     try {
       if (!newMember.guild) return;
 
-      // Someone just boosted the server -> thank them
-      if (!oldMember.partial && !oldMember.premiumSince && newMember.premiumSince) {
-        await sendBoostThanks(newMember);
-      }
+      // Linked roles: whoever has role A also gets role B (see src/config/roleLinks.js)
+      await applyRoleLinks(newMember);
 
       if (oldMember.nickname !== newMember.nickname) {
         await enforceForcedNick(newMember);
