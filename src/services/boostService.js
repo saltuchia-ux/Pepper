@@ -52,11 +52,39 @@ export function buildBoostPayload({ guild, user, position }) {
     };
 }
 
+// Gives the booster the roles from boostDefaults.js (giveRoleIds)
+async function giveBoostRoles(member) {
+    for (const roleId of BOOST_DEFAULTS.giveRoleIds ?? []) {
+        try {
+            const role = member.guild.roles.cache.get(roleId)
+                ?? await member.guild.roles.fetch(roleId).catch(() => null);
+
+            if (!role) {
+                logger.warn(`Boost role: role ${roleId} not found in ${member.guild.name}`);
+                continue;
+            }
+
+            if (member.roles.cache.has(role.id)) continue;
+
+            if (!role.editable) {
+                logger.warn(`Boost role: can't give "${role.name}" - move the bot's role above it and give the bot Manage Roles`);
+                continue;
+            }
+
+            await member.roles.add(role, 'Server boost gift');
+        } catch (error) {
+            logger.error(`Boost role: failed to give ${roleId}:`, error);
+        }
+    }
+}
+
 export async function sendBoostThanks(member) {
     try {
         if (!BOOST_DEFAULTS.enabled) return;
 
         const guild = member.guild;
+
+        await giveBoostRoles(member);
 
         // ask Discord for the newest boost count
         const fresh = await guild.fetch().catch(() => guild);
