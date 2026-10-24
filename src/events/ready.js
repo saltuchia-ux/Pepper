@@ -7,6 +7,7 @@ import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.j
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startTempBanChecker } from "../services/tempBanService.js";
 import { syncAllRoleLinks } from "../services/roleLinkService.js";
+import { ensureAllTicketPanels } from "../services/ticketHubService.js";
 
 export default {
   name: Events.ClientReady,
@@ -51,6 +52,9 @@ export default {
       startupLog(
         `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
       );
+
+      // Posts (or refreshes) the General / Ideas / Verify ticket panel in the tickets channel
+      ensureAllTicketPanels(client).catch((error) => logger.error('Ticket panel setup failed:', error));
 
       // Unbans people automatically when their temporary ban (.ban @user 3 days) is over
       startTempBanChecker(client);
