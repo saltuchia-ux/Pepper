@@ -53,7 +53,10 @@ export function buildBoostPayload({ guild, user, position }) {
 }
 
 // Gives the booster the roles from boostDefaults.js (giveRoleIds)
-async function giveBoostRoles(member) {
+// Returns a short result for each role (used by .boosttest role)
+export async function giveBoostRoles(member) {
+    const results = [];
+
     for (const roleId of BOOST_DEFAULTS.giveRoleIds ?? []) {
         try {
             const role = member.guild.roles.cache.get(roleId)
@@ -61,21 +64,30 @@ async function giveBoostRoles(member) {
 
             if (!role) {
                 logger.warn(`Boost role: role ${roleId} not found in ${member.guild.name}`);
+                results.push(`Role ${roleId} was not found in this server`);
                 continue;
             }
 
-            if (member.roles.cache.has(role.id)) continue;
+            if (member.roles.cache.has(role.id)) {
+                results.push(`You already have **${role.name}**`);
+                continue;
+            }
 
             if (!role.editable) {
                 logger.warn(`Boost role: can't give "${role.name}" - move the bot's role above it and give the bot Manage Roles`);
+                results.push(`Can't give **${role.name}**: move the bot's role above it and give the bot Manage Roles`);
                 continue;
             }
 
             await member.roles.add(role, 'Server boost gift');
+            results.push(`Gave you **${role.name}**`);
         } catch (error) {
             logger.error(`Boost role: failed to give ${roleId}:`, error);
+            results.push(`Failed to give role ${roleId}`);
         }
     }
+
+    return results;
 }
 
 export async function sendBoostThanks(member) {
