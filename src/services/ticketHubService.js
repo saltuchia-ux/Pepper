@@ -27,6 +27,16 @@ export function getStaffRoleIds(config) {
     return [...new Set([config?.ticketStaffRoleId, ...TICKET_HUB.staffRoleIds].filter(Boolean))];
 }
 
+/**
+ * Only the role(s) in config/ticketHub.js may close tickets.
+ * Returns true/false, or null when no role is set there (then the old rules are used).
+ */
+export function memberCanCloseTickets(member) {
+    const ids = TICKET_HUB.staffRoleIds;
+    if (!ids.length) return null;
+    return ids.some((roleId) => member?.roles?.cache?.has(roleId));
+}
+
 export async function getMemberLevel(client, guildId, userId) {
     const data = await getUserLevelData(client, guildId, userId);
     return data?.level ?? 0;
