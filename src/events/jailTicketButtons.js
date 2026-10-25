@@ -1,5 +1,7 @@
 import { Events, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { memberCanCloseTickets } from '../services/ticketHubService.js';
+import { TICKET_HUB } from '../config/ticketHub.js';
 import {
     getJailConfig,
     openJailTicket,
@@ -50,9 +52,18 @@ export default {
                 });
             }
 
-            // Close Ticket: only staff
-            if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-                return interaction.reply({ content: 'Only moderators can close a ticket.', flags: PRIVATE });
+            // Close Ticket: only the role in config/ticketHub.js (if none is set, any moderator)
+            const roleRule = memberCanCloseTickets(interaction.member);
+            const canClose = roleRule ?? interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers);
+
+            if (!canClose) {
+                return interaction.reply({
+                    content: TICKET_HUB.staffRoleIds.length
+                        ? `Only members with ${TICKET_HUB.staffRoleIds.map((rid) => `<@&${rid}>`).join(' ')} can close a ticket.`
+                        : 'Only moderators can close a ticket.',
+                    flags: PRIVATE,
+                    allowedMentions: { parse: [] },
+                });
             }
 
             const ownerId = await findTicketOwner(interaction.guild.id, interaction.channel.id);
