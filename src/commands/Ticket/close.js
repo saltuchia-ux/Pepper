@@ -6,6 +6,7 @@ import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { getTicketPermissionContext } from '../../utils/ticket/ticketPermissions.js';
 import { closeTicket } from '../../services/ticket.js';
+import { TICKET_HUB } from '../../config/ticketHub.js';
 export default {
     data: new SlashCommandBuilder()
         .setName("close")
@@ -30,7 +31,7 @@ export default {
         }
 
         if (!permissionContext.canCloseTicket) {
-            return await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: 'You need the `Manage Channels` permission, the configured `Ticket Staff Role`, or be the ticket creator to close this ticket.' });
+            return await replyUserError(interaction, { type: ErrorTypes.PERMISSION, message: TICKET_HUB.staffRoleIds.length ? `Only members with ${TICKET_HUB.staffRoleIds.map((id) => `<@&${id}>`).join(' ')} can close tickets.` : 'You need the `Manage Channels` permission, the configured `Ticket Staff Role`, or be the ticket creator to close this ticket.' });
         }
 
         const reason =
