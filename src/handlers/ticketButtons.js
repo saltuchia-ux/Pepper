@@ -8,6 +8,7 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { replyUserError, ErrorTypes, handleInteractionError, createError } from '../utils/errorHandler.js';
 import { getTicketPermissionContext } from '../utils/ticket/ticketPermissions.js';
+import { TICKET_HUB } from '../config/ticketHub.js';
 
 function escapeHtml(text) {
   if (!text) return '';
@@ -67,7 +68,9 @@ async function assertTicketPermission(interaction, client, actionLabel, options 
   const allowed = allowTicketCreator ? context.canCloseTicket : context.canManageTicket;
   if (!allowed) {
     const permissionMessage = allowTicketCreator
-      ? 'You must have **Manage Channels**, the configured **Ticket Staff Role**, or be the **ticket creator**.'
+      ? (TICKET_HUB.staffRoleIds.length
+          ? `Only members with ${TICKET_HUB.staffRoleIds.map((id) => `<@&${id}>`).join(' ')} can close tickets.`
+          : 'You must have **Manage Channels**, the configured **Ticket Staff Role**, or be the **ticket creator**.')
       : 'You must have **Manage Channels** or the configured **Ticket Staff Role**.';
     throw createError(
       'Ticket permission denied',
