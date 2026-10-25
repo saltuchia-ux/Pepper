@@ -8,6 +8,7 @@ import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startTempBanChecker } from "../services/tempBanService.js";
 import { syncAllRoleLinks } from "../services/roleLinkService.js";
 import { ensureAllTicketPanels } from "../services/ticketHubService.js";
+import { syncAllStatusRoles } from "../services/statusRoleService.js";
 
 export default {
   name: Events.ClientReady,
@@ -52,6 +53,9 @@ export default {
       startupLog(
         `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
       );
+
+      // Gives the status role to people who already have the server link in their status
+      syncAllStatusRoles(client).catch((error) => logger.error('Status role startup sync failed:', error));
 
       // Posts (or refreshes) the General / Ideas / Verify ticket panel in the tickets channel
       ensureAllTicketPanels(client).catch((error) => logger.error('Ticket panel setup failed:', error));
