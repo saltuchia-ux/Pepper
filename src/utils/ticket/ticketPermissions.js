@@ -3,7 +3,7 @@
 import { PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { getTicketData } from '../database.js';
-import { getStaffRoleIds } from '../../services/ticketHubService.js';
+import { getStaffRoleIds, memberCanCloseTickets } from '../../services/ticketHubService.js';
 
 export async function getTicketPermissionContext({ client, interaction }) {
   const guildId = interaction.guildId;
@@ -27,6 +27,8 @@ export async function getTicketPermissionContext({ client, interaction }) {
     hasTicketStaffRole,
     isTicketCreator,
     canManageTicket: hasManageChannels || hasTicketStaffRole,
-    canCloseTicket: hasManageChannels || hasTicketStaffRole || isTicketCreator,
+    // Only the role in config/ticketHub.js can close tickets (not even the person who made the ticket).
+    canCloseTicket: memberCanCloseTickets(interaction.member)
+      ?? (hasManageChannels || hasTicketStaffRole || isTicketCreator),
   };
 }
