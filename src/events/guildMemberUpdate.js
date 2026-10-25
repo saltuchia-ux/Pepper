@@ -2,7 +2,7 @@ import { Events } from 'discord.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { logger } from '../utils/logger.js';
 import { enforceForcedNick } from '../utils/forcedNick.js';
-import { applyRoleLinks } from '../services/roleLinkService.js';
+import { applyRoleLinks, removeRoleLinksIfLost } from '../services/roleLinkService.js';
 
 export default {
   name: Events.GuildMemberUpdate,
@@ -14,6 +14,7 @@ export default {
 
       // Linked roles: whoever has role A also gets role B (see src/config/roleLinks.js)
       await applyRoleLinks(newMember);
+      await removeRoleLinksIfLost(oldMember, newMember); // takes the linked role away when the trigger role is lost
 
       if (oldMember.nickname !== newMember.nickname) {
         await enforceForcedNick(newMember);
