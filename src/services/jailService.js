@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { createEmbed } from '../utils/embeds.js';
 import { logger } from '../utils/logger.js';
+import { TICKET_HUB } from '../config/ticketHub.js';
 import { getFromDb, setInDb } from '../utils/database.js';
 import { Mutex } from '../utils/mutex.js';
 import { TitanBotError, ErrorTypes } from '../utils/errorHandler.js';
@@ -141,8 +142,10 @@ export function detectPingRoles(guild, jailRole) {
 }
 
 // The roles that really get pinged (they must still exist)
+// Jail tickets ping ONLY the role(s) in config/ticketHub.js (the same role as normal tickets).
+// Trial Mod / Head Mod / Manager etc. are not pinged, but they can still see the ticket.
 export function getPingRoles(guild, config) {
-    return (config?.pingRoleIds || [])
+    return TICKET_HUB.staffRoleIds
         .map((id) => guild.roles.cache.get(id))
         .filter(Boolean);
 }

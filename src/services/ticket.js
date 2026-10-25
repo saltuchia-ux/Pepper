@@ -18,6 +18,7 @@ import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { ensureTypedServiceError, wrapServiceBoundary } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
 import { getStaffRoleIds } from './ticketHubService.js';
+import { TICKET_HUB } from '../config/ticketHub.js';
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 const TICKET_SERVICE = 'ticketService';
@@ -204,13 +205,16 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       );
     }
     
-    const staffMention = getStaffRoleIds(config).map((id) => ` <@&${id}>`).join('');
+    // Only the role(s) in config/ticketHub.js are pinged (other staff can still see the ticket)
+    const pingRoleIds = TICKET_HUB.staffRoleIds;
+    const staffMention = pingRoleIds.map((id) => ` <@&${id}>`).join('');
     const messageContent = `${member.toString()}${staffMention}`;
     
     const ticketMessage = await channel.send({ 
       content: messageContent,
       embeds: [embed],
-      components: [row] 
+      components: [row],
+      allowedMentions: { users: [member.id], roles: pingRoleIds }
     });
 
     await ticketMessage.pin().catch(() => {});

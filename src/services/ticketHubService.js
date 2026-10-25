@@ -42,7 +42,7 @@ export function buildPanel(guild) {
             '',
             `• **General:** questions about the server, reporting problems or people who shouldn't be here, claiming your custom role (level ${TICKET_HUB.customRoleLevel}+), anything else valid`,
             '',
-            `• **Ideas • level ${TICKET_HUB.ideasMinLevel}+:** bot recommendations, daily activity ideas, server ideas. It has to help the server, not just you`,
+            `• **Ideas${TICKET_HUB.ideasMinLevel > 0 ? ` • level ${TICKET_HUB.ideasMinLevel}+` : ''}:** bot recommendations, daily activity ideas, server ideas. It has to help the server, not just you`,
             '',
             "• **Verify:** send a video saying your username and today's date, with your face visible. Not comfortable? Don't open one",
         ].join('\n'),
