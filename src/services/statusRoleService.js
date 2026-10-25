@@ -68,8 +68,11 @@ async function thank(guild, member) {
 
     const text = STATUS_ROLE.message.replace('{username}', escapeMarkdown(member.user.username));
 
-    // parse: [] -> nobody is pinged, whatever the username looks like
-    await channel.send({ content: text, allowedMentions: { parse: [] } })
+    // Black-bordered box. parse: [] -> nobody is pinged, whatever the username looks like.
+    await channel.send({
+        embeds: [{ color: 0x010101, description: text }],
+        allowedMentions: { parse: [] },
+    })
         .catch((error) => logger.error('Status role: could not send the thank-you message:', error));
 }
 
