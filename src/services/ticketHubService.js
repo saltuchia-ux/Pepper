@@ -19,6 +19,14 @@ export function findChannelByName(guild, wanted) {
     ) ?? null;
 }
 
+/** Finds the category where hub tickets go (exact name match, so "Jail Tickets" is never picked). */
+export function findTicketCategory(guild) {
+    const target = normalize(TICKET_HUB.ticketCategoryName);
+    return guild.channels.cache.find(
+        (channel) => channel.type === ChannelType.GuildCategory && normalize(channel.name) === target,
+    ) ?? null;
+}
+
 export const findPanelChannel = (guild) => findChannelByName(guild, TICKET_HUB.panelChannelName);
 export const findTicketLogChannel = (guild) => findChannelByName(guild, TICKET_HUB.logChannelName);
 

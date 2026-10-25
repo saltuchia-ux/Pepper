@@ -102,7 +102,8 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       guild.channels.cache.get(categoryId) :
       guild.channels.cache.find(c => 
         c.type === ChannelType.GuildCategory && 
-        c.name.toLowerCase().includes('tickets')
+        c.name.toLowerCase().includes('tickets') &&
+        !c.name.toLowerCase().includes('jail')
       );
     
     if (!category && !categoryId) {
