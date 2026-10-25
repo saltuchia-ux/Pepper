@@ -14,7 +14,7 @@ export const TICKET_HUB = {
     staffRoleIds: ['1563706590182375515'],
 
     // Levels
-    ideasMinLevel: 20,
+    ideasMinLevel: 0, // 0 = no level needed. Set a number (e.g. 20) to require that level for Ideas tickets
     customRoleLevel: 25, // only shown in the panel text (claiming custom role happens in a General ticket)
 
     types: {
@@ -31,7 +31,7 @@ export const TICKET_HUB = {
             label: 'Ideas',
             emoji: '💡',
             style: 'Success', // green
-            minLevel: 20,
+            minLevel: 0, // no level needed (the Ideas level is set by ideasMinLevel above)
             asksReason: true,
             modalTitle: 'Ideas Ticket',
             modalLabel: 'What is your idea?',
@@ -50,3 +50,6 @@ export const TICKET_HUB = {
         },
     },
 };
+
+// Ideas tickets follow the single ideasMinLevel setting above.
+TICKET_HUB.types.ideas.minLevel = TICKET_HUB.ideasMinLevel;
