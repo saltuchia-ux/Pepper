@@ -11,7 +11,7 @@ export const TICKET_HUB = {
 
     // Staff who can see and manage ALL tickets: paste role IDs here, e.g. ['123456789012345678'].
     // People with Manage Channels (and admins) can always manage tickets.
-    staffRoleIds: [],
+    staffRoleIds: ['1563706590182375515'],
 
     // Levels
     ideasMinLevel: 20,
