@@ -9,6 +9,10 @@ export const TICKET_HUB = {
     panelChannelName: 'tickets',
     logChannelName: 'ticket-logs',
 
+    // New General / Ideas / Verify tickets are created inside the category with this name
+    // (emojis and symbols are ignored). Jail tickets are NOT affected, they have their own category.
+    ticketCategoryName: 'Tickets',
+
     // Staff who can see and manage ALL tickets: paste role IDs here, e.g. ['123456789012345678'].
     // People with Manage Channels (and admins) can always manage tickets.
     staffRoleIds: ['1563706590182375515'],
