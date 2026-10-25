@@ -253,9 +253,12 @@ class TitanBot extends Client {
   }
 
   setupCronJobs() {
-    cron.schedule('0 6 * * *', runSafeTask('birthday_check', () => checkBirthdays(this)));
-    cron.schedule('* * * * *', runSafeTask('giveaway_check', () => checkGiveaways(this)));
-    cron.schedule('*/15 * * * *', runSafeTask('counter_update', () => this.updateAllCounters()));
+    // Fixed to UTC so daylight-saving clock changes can't trigger node-cron
+    // "missed execution" warning spam.
+    const cronOptions = { timezone: 'UTC' };
+    cron.schedule('0 6 * * *', runSafeTask('birthday_check', () => checkBirthdays(this)), cronOptions);
+    cron.schedule('* * * * *', runSafeTask('giveaway_check', () => checkGiveaways(this)), cronOptions);
+    cron.schedule('*/15 * * * *', runSafeTask('counter_update', () => this.updateAllCounters()), cronOptions);
   }
 
   async updateAllCounters() {
