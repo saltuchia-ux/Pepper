@@ -25,7 +25,8 @@ class TitanBot extends Client {
       intents: [
         
         GatewayIntentBits.Guilds,                        
-        GatewayIntentBits.GuildMembers,                 
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences,               // needs "Presence Intent" on in the Developer Portal (status role)                 
 
         GatewayIntentBits.GuildMessages,                
         GatewayIntentBits.GuildMessageReactions,        
@@ -253,12 +254,9 @@ class TitanBot extends Client {
   }
 
   setupCronJobs() {
-    // Fixed to UTC so daylight-saving clock changes can't trigger node-cron
-    // "missed execution" warning spam.
-    const cronOptions = { timezone: 'UTC' };
-    cron.schedule('0 6 * * *', runSafeTask('birthday_check', () => checkBirthdays(this)), cronOptions);
-    cron.schedule('* * * * *', runSafeTask('giveaway_check', () => checkGiveaways(this)), cronOptions);
-    cron.schedule('*/15 * * * *', runSafeTask('counter_update', () => this.updateAllCounters()), cronOptions);
+    cron.schedule('0 6 * * *', runSafeTask('birthday_check', () => checkBirthdays(this)));
+    cron.schedule('* * * * *', runSafeTask('giveaway_check', () => checkGiveaways(this)));
+    cron.schedule('*/15 * * * *', runSafeTask('counter_update', () => this.updateAllCounters()));
   }
 
   async updateAllCounters() {
