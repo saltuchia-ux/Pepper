@@ -3,6 +3,7 @@
 import { ChannelType } from 'discord.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { logger } from '../logger.js';
+import { findTicketLogChannel } from '../../services/ticketHubService.js';
 import {
   buildStandardLogEmbed,
   formatRatingStars,
@@ -19,7 +20,8 @@ export async function logTicketEvent({ client, guildId, event }) {
 
     const config = await getGuildConfig(client, guildId);
 
-    const logChannelId = getLogChannelForEventType(config, event.type);
+    // No log channel saved in the dashboard -> use the channel named "ticket-logs" (see config/ticketHub.js)
+    const logChannelId = getLogChannelForEventType(config, event.type) || findTicketLogChannel(guild)?.id;
     if (!logChannelId) {
       return;
     }
