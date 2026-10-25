@@ -46,17 +46,26 @@ async function getServerInviteCodes(guild) {
     return codes;
 }
 
-async function wasThanked(guildId, userId) {
-    const list = await getFromDb(`cache:status_role:thanked:${guildId}`, []);
-    return Array.isArray(list) && list.includes(userId);
+// Who currently has the server link in their status. A thank-you is sent each time someone
+// goes from "no link" to "link", so it repeats if they remove it and put it back later.
+const activeCache = new Map(); // guildId -> Set(userId)
+
+async function getActive(guildId) {
+    if (activeCache.has(guildId)) return activeCache.get(guildId);
+
+    let saved = await getFromDb(`cache:status_role:active:${guildId}`, null);
+    if (!Array.isArray(saved)) {
+        // First run of this version: start from the people who were already thanked, so nobody is thanked twice.
+        saved = await getFromDb(`cache:status_role:thanked:${guildId}`, []);
+    }
+
+    const set = new Set(Array.isArray(saved) ? saved : []);
+    activeCache.set(guildId, set);
+    return set;
 }
 
-async function markThanked(guildId, userId) {
-    const key = `cache:status_role:thanked:${guildId}`;
-    const list = await getFromDb(key, []);
-    const next = Array.isArray(list) ? list : [];
-    if (!next.includes(userId)) next.push(userId);
-    await setInDb(key, next);
+async function saveActive(guildId, set) {
+    await setInDb(`cache:status_role:active:${guildId}`, [...set]);
 }
 
 async function thank(guild, member) {
@@ -76,7 +85,7 @@ async function thank(guild, member) {
         .catch((error) => logger.error('Status role: could not send the thank-you message:', error));
 }
 
-/** Checks one presence: gives the role + thanks once if the server link is in the custom status. */
+/** Checks one presence: gives the role and thanks them each time the server link newly appears in their status. */
 export async function handlePresence(presence) {
     try {
         if (!STATUS_ROLE.enabled || !presence?.guild) return;
@@ -85,17 +94,27 @@ export async function handlePresence(presence) {
         const userId = presence.userId ?? presence.user?.id;
         if (!userId || busy.has(`${guild.id}:${userId}`)) return;
 
-        const text = customStatusText(presence);
-        if (!text) return;
-
-        const found = extractInviteCodes(text);
-        if (!found.length) return;
-
-        const serverCodes = await getServerInviteCodes(guild);
-        if (!found.some((code) => serverCodes.has(code))) return;
-
         busy.add(`${guild.id}:${userId}`);
         try {
+            const found = extractInviteCodes(customStatusText(presence));
+            let hasLink = false;
+            if (found.length) {
+                const serverCodes = await getServerInviteCodes(guild);
+                hasLink = found.some((code) => serverCodes.has(code));
+            }
+
+            const active = await getActive(guild.id);
+            const wasActive = active.has(userId);
+
+            if (!hasLink) {
+                // Offline presences carry no status text, so only a real online/idle/dnd update can clear it.
+                if (wasActive && presence.status && presence.status !== 'offline') {
+                    active.delete(userId);
+                    await saveActive(guild.id, active);
+                }
+                return;
+            }
+
             const member = presence.member ?? await guild.members.fetch(userId).catch(() => null);
             if (!member || member.user.bot) return;
 
@@ -115,8 +134,9 @@ export async function handlePresence(presence) {
                 await member.roles.add(role, 'Server link in status');
             }
 
-            if (!(await wasThanked(guild.id, member.id))) {
-                await markThanked(guild.id, member.id);
+            if (!wasActive) {
+                active.add(userId);
+                await saveActive(guild.id, active); // saved first, so a quick second update can't thank twice
                 await thank(guild, member);
             }
         } finally {
