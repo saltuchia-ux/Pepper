@@ -2,7 +2,7 @@ import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, Messa
 import { successEmbed } from '../utils/embeds.js';
 import { createTicket, getUserTicketCount } from '../services/ticket.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
-import { getMemberLevel } from '../services/ticketHubService.js';
+import { getMemberLevel, findTicketCategory } from '../services/ticketHubService.js';
 import { TICKET_HUB } from '../config/ticketHub.js';
 import { logger } from '../utils/logger.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
@@ -38,7 +38,7 @@ async function openTicket(interaction, client, type, reason) {
     const { channel } = await createTicket(
         interaction.guild,
         interaction.member,
-        config.ticketCategoryId || null,
+        findTicketCategory(interaction.guild)?.id || config.ticketCategoryId || null,
         reason,
         'none',
         { type, label: info.label, intro: info.intro ?? null },
