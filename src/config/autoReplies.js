@@ -21,8 +21,6 @@ export const AUTO_REPLIES = [
             color: 0x010101,
             title: 'Image Perms',
             description: [
-                'Want to send **images**? You get **image perms** by doing **any one** of these:',
-                '',
                 '• **Boost the server** and enjoy the server perks',
                 '• **Put the server link in your status**',
                 '• **Reach level 10**',
