@@ -4,7 +4,7 @@ import { getFromDb, setInDb } from '../utils/database.js';
 
 // ==========================================
 // Last.fm helper (talks to Last.fm + remembers who linked what)
-/ Needs ONE setting on your host:  LASTFM_API_KEY
+// Needs ONE setting on your host:  LASTFM_API_KEY
 // ==========================================
 
 const API = 'https://ws.audioscrobbler.com/2.0/';
