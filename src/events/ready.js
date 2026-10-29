@@ -4,6 +4,7 @@ import config from "../config/application.js";
 import { reconcileReactionRoleMessages } from "../services/reactionRoleService.js";
 import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRolePanelHealth } from "../services/panelHealthService.js";
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
+import { FEATURES } from "../config/features.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { startTempBanChecker } from "../services/tempBanService.js";
 import { syncAllRoleLinks } from "../services/roleLinkService.js";
@@ -49,10 +50,14 @@ export default {
         `Reaction role panel health: scanned ${reactionRolePanelSummary.scannedPanels} panels, healthy ${reactionRolePanelSummary.healthyPanels}, deleted ${reactionRolePanelSummary.deletedPanels}, missing channel ${reactionRolePanelSummary.missingChannels}, recovered ${reactionRolePanelSummary.recoveredIds}, errors ${reactionRolePanelSummary.errors}`
       );
 
-      const levelRoleSummary = await reconcileLevelRoles(client);
-      startupLog(
-        `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
-      );
+      if (FEATURES.leveling) {
+        const levelRoleSummary = await reconcileLevelRoles(client);
+        startupLog(
+          `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
+        );
+      } else {
+        startupLog('Leveling is off (config/features.js), level role sync skipped');
+      }
 
       // Gives the status role to people who already have the server link in their status
       syncAllStatusRoles(client).catch((error) => logger.error('Status role startup sync failed:', error));

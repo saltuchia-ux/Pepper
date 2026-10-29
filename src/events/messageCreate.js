@@ -10,6 +10,7 @@ import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { executePrefixCommand } from '../utils/messageAdapter.js';
 import { resolveCommandAlias } from '../config/commands/commandAliases.js';
+import { FEATURES } from '../config/features.js';
 
 import {
   getCountingGameConfig,
@@ -141,10 +142,12 @@ export default {
       // XP / LEVELING
       // ==========================================
 
-      await handleLeveling(
-        message,
-        client
-      );
+      if (FEATURES.leveling) {
+        await handleLeveling(
+          message,
+          client
+        );
+      }
 
     } catch (error) {
       logger.error(
