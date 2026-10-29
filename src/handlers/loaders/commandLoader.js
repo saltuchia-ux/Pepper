@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import botConfig from '../../config/bot.js';
+import { FEATURES } from '../../config/features.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,10 @@ async function getAllFiles(directory, fileList = []) {
         
         if (file.isDirectory()) {
             if (file.name === 'modules') {
+                continue;
+            }
+            // Leveling off: don't register /rank, /leaderboard, /level... at all
+            if (file.name === 'Leveling' && !FEATURES.leveling) {
                 continue;
             }
             await getAllFiles(filePath, fileList);
