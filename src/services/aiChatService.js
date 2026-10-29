@@ -3,42 +3,129 @@ import { escapeMarkdown } from 'discord.js';
 import { AI_CHAT } from '../config/aiChat.js';
 import { logger } from '../utils/logger.js';
 
+// ==========================================
+// Talks to ANY AI company. Settings on the host: AI_API_KEY (+ optional AI_PROVIDER, AI_MODEL, AI_BASE_URL)
+// ==========================================
+
+// "kind" = how the company's API is shaped. Most use the OpenAI shape.
+const PROVIDERS = {
+    anthropic: { kind: 'anthropic', url: 'https://api.anthropic.com/v1/messages', model: 'claude-haiku-5-5' },
+    openai: { kind: 'openai', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', tokenParam: 'max_completion_tokens' },
+    gemini: { kind: 'gemini', base: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash' },
+    openrouter: { kind: 'openai', base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
+    groq: { kind: 'openai', base: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant' },
+    deepseek: { kind: 'openai', base: 'https://api.deepseek.com', model: 'deepseek-chat' },
+    mistral: { kind: 'openai', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
+    xai: { kind: 'openai', base: 'https://api.x.ai/v1', model: null },
+    custom: { kind: 'openai', base: null, model: null },
+};
+
+// If AI_API_KEY isn't set, these company-specific names are also understood
+const KEY_NAMES = [
+    ['ANTHROPIC_API_KEY', 'anthropic'], ['OPENAI_API_KEY', 'openai'], ['GEMINI_API_KEY', 'gemini'],
+    ['GOOGLE_API_KEY', 'gemini'], ['OPENROUTER_API_KEY', 'openrouter'], ['GROQ_API_KEY', 'groq'],
+    ['DEEPSEEK_API_KEY', 'deepseek'], ['MISTRAL_API_KEY', 'mistral'], ['XAI_API_KEY', 'xai'],
+];
+
+function detectProvider(key) {
+    if (key.startsWith('sk-ant-')) return 'anthropic';
+    if (key.startsWith('sk-or-')) return 'openrouter';
+    if (key.startsWith('AIza')) return 'gemini';
+    if (key.startsWith('gsk_')) return 'groq';
+    if (key.startsWith('xai-')) return 'xai';
+    if (key.startsWith('sk-')) return 'openai';
+    return null;
+}
+
+/** Works out which AI to use from the host settings. */
+export function resolveAi(env = process.env) {
+    let key = env.AI_API_KEY?.trim();
+    let provider = env.AI_PROVIDER?.trim().toLowerCase();
+
+    if (!key) {
+        for (const [name, company] of KEY_NAMES) {
+            if (env[name]?.trim()) {
+                key = env[name].trim();
+                provider = provider || company;
+                break;
+            }
+        }
+    }
+    if (!key) return { error: 'nokey' };
+
+    provider = provider || detectProvider(key) || (env.AI_BASE_URL ? 'custom' : null);
+    if (!provider || !PROVIDERS[provider]) return { error: 'noprovider' };
+
+    const def = PROVIDERS[provider];
+    const model = env.AI_MODEL?.trim() || AI_CHAT.model || def.model;
+    const base = (env.AI_BASE_URL?.trim() || def.base || '').replace(/\/+$/, '');
+
+    if (!model) return { error: 'nomodel', provider };
+    if (def.kind === 'openai' && !base) return { error: 'nobase', provider };
+
+    return { provider, kind: def.kind, key, model, base, url: def.url, tokenParam: def.tokenParam ?? 'max_tokens' };
+}
+
 const lastAsked = new Map();
-let lastKeyWarning = 0;
+const lastWarning = new Map();
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// "Chili what is 1 + 1"  ->  "what is 1 + 1"   (capital C matters; "chili ..." does nothing)
+// "Pepper what is 1 + 1"  ->  "what is 1 + 1"   (capital letters matter; "pepper ..." does nothing)
 function readQuestion(content) {
     const match = new RegExp(`^${escapeRegExp(AI_CHAT.name)}[\\s,:!?]+([\\s\\S]+)$`).exec(String(content ?? '').trim());
     return match ? match[1].trim() : null;
 }
 
-async function askModel(question, askerName) {
-    const { data } = await axios.post(
-        'https://api.anthropic.com/v1/messages',
-        {
-            model: AI_CHAT.model,
+async function askModel(ai, system, userText) {
+    if (ai.kind === 'anthropic') {
+        const { data } = await axios.post(ai.url, {
+            model: ai.model,
             max_tokens: AI_CHAT.maxTokens,
-            system: AI_CHAT.persona.replaceAll('{name}', AI_CHAT.name),
-            messages: [{ role: 'user', content: `${askerName} asks: ${question}` }],
-        },
-        {
-            headers: {
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json',
-            },
+            system,
+            messages: [{ role: 'user', content: userText }],
+        }, {
+            headers: { 'x-api-key': ai.key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
             timeout: 25000,
-        },
-    );
+        });
+        return (data?.content ?? []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+    }
 
-    return (data?.content ?? [])
-        .filter((block) => block.type === 'text')
-        .map((block) => block.text)
-        .join('')
-        .trim();
+    if (ai.kind === 'gemini') {
+        const { data } = await axios.post(`${ai.base}/models/${encodeURIComponent(ai.model)}:generateContent`, {
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: 'user', parts: [{ text: userText }] }],
+            generationConfig: { maxOutputTokens: AI_CHAT.maxTokens },
+        }, {
+            headers: { 'x-goog-api-key': ai.key, 'content-type': 'application/json' },
+            timeout: 25000,
+        });
+        return (data?.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('');
+    }
+
+    // OpenAI shape: OpenAI, OpenRouter, Groq, DeepSeek, Mistral, xAI and most others
+    const { data } = await axios.post(`${ai.base}/chat/completions`, {
+        model: ai.model,
+        [ai.tokenParam]: AI_CHAT.maxTokens,
+        messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userText },
+        ],
+    }, {
+        headers: { Authorization: `Bearer ${ai.key}`, 'content-type': 'application/json' },
+        timeout: 25000,
+    });
+
+    const content = data?.choices?.[0]?.message?.content;
+    return Array.isArray(content) ? content.map((part) => part.text ?? '').join('') : (content ?? '');
 }
+
+const SETUP_NOTES = {
+    nokey: () => 'The bot owner must add `AI_API_KEY`',
+    noprovider: () => "I can't tell which AI company the key is from. The bot owner must add `AI_PROVIDER` (like `openai` or `gemini`)",
+    nomodel: () => 'The bot owner must add `AI_MODEL` (the model name to use)',
+    nobase: () => 'The bot owner must add `AI_BASE_URL` (the address of the AI service)',
+};
 
 export async function handleAiChat(message) {
     try {
@@ -48,11 +135,16 @@ export async function handleAiChat(message) {
         const asked = readQuestion(message.content);
         if (!asked) return;
 
-        if (!process.env.ANTHROPIC_API_KEY) {
-            if (Date.now() - lastKeyWarning > 10 * 60 * 1000) {
-                lastKeyWarning = Date.now();
-                logger.warn('AI chat: add ANTHROPIC_API_KEY on your host to turn it on');
-                await message.channel.send({ content: `${AI_CHAT.name} isn't set up yet. The bot owner must add \`ANTHROPIC_API_KEY\``, allowedMentions: { parse: [] } }).catch(() => {});
+        const ai = resolveAi();
+        if (ai.error) {
+            // Tell people at most once every 10 minutes, and log what to fix
+            if (Date.now() - (lastWarning.get(ai.error) ?? 0) > 10 * 60 * 1000) {
+                lastWarning.set(ai.error, Date.now());
+                logger.warn(`AI chat is not set up (${ai.error}): ${SETUP_NOTES[ai.error]()}`);
+                await message.channel.send({
+                    content: `${AI_CHAT.name} isn't set up yet. ${SETUP_NOTES[ai.error]()}`,
+                    allowedMentions: { parse: [] },
+                }).catch(() => {});
             }
             return;
         }
@@ -63,15 +155,19 @@ export async function handleAiChat(message) {
 
         await message.channel.sendTyping?.().catch(() => {});
 
+        const askerName = message.member?.displayName ?? message.author.username;
         let answer;
         try {
-            answer = await askModel(
-                asked.slice(0, AI_CHAT.maxQuestionLength),
-                message.member?.displayName ?? message.author.username,
-            );
+            answer = (await askModel(
+                ai,
+                AI_CHAT.persona.replaceAll('{name}', AI_CHAT.name),
+                `${askerName} asks: ${asked.slice(0, AI_CHAT.maxQuestionLength)}`,
+            )).trim();
         } catch (error) {
             const status = error.response?.status;
-            logger.warn('AI chat request failed', { status, message: error.response?.data?.error?.message ?? error.message });
+            const detail = error.response?.data?.error?.message ?? error.response?.data?.message ?? error.message;
+            logger.warn('AI chat request failed', { provider: ai.provider, model: ai.model, status, detail });
+
             const text = status === 429
                 ? `${AI_CHAT.name} is too busy right now, try again in a bit`
                 : `${AI_CHAT.name} can't think right now, try again later`;
