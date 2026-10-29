@@ -29,6 +29,9 @@ export const AI_CHAT = {
     // Room for the answer. Some models "think" first and use part of this, so keep it generous.
     maxTokens: 800,
 
+    // What it says when someone types just the name, with nothing after it. (No AI key needed for this.)
+    greeting: 'how can i help you',
+
     // Each person has to wait this long between questions (seconds)
     userCooldown: 8,
 
