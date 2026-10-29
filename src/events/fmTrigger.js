@@ -1,5 +1,5 @@
 import { Events } from 'discord.js';
-import { getCcMap, getLinkedUsername, buildNowPlayingPayload, hasApiKey } from '../services/lastfmService.js';
+import { getCcMap, getLinkedUsername, buildNowPlayingPayload, addVoteReactions, hasApiKey } from '../services/lastfmService.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { logger } from '../utils/logger.js';
 
@@ -31,8 +31,9 @@ export default {
         try {
             await message.channel.sendTyping?.().catch(() => {});
             const payload = await buildNowPlayingPayload(username, message.member?.displayName ?? message.author.username);
-            await message.reply({ ...payload, allowedMentions: { parse: [], repliedUser: false } })
+            const sent = await message.reply({ ...payload, allowedMentions: { parse: [], repliedUser: false } })
                 .catch(() => message.channel.send(payload));
+            await addVoteReactions(sent);
         } catch (error) {
             logger.warn('Last.fm custom command failed', { message: error.message });
         }
