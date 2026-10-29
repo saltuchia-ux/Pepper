@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { escapeMarkdown } from 'discord.js';
+import { escapeMarkdown, PermissionFlagsBits } from 'discord.js';
 import { AI_CHAT } from '../config/aiChat.js';
 import { logger } from '../utils/logger.js';
 
@@ -71,11 +71,22 @@ const lastWarning = new Map();
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// "Pepper what is 1 + 1"  ->  "what is 1 + 1"   (capital letters matter; "pepper ..." does nothing)
-function readQuestion(content) {
-    const match = new RegExp(`^${escapeRegExp(AI_CHAT.name)}[\\s,:!?]+([\\s\\S]+)$`).exec(String(content ?? '').trim());
-    return match ? match[1].trim() : null;
+// "Pepper what is 1 + 1"  ->  { question: "what is 1 + 1" }   (capital letters matter; "pepper ..." does nothing)
+// "Pepper" on its own     ->  { greeting: true }
+function readMessage(content) {
+    const text = String(content ?? '').trim();
+
+    if (new RegExp(`^${escapeRegExp(AI_CHAT.name)}[\\s,.:!?]*$`).test(text)) return { greeting: true };
+
+    const match = new RegExp(`^${escapeRegExp(AI_CHAT.name)}[\\s,:!?]+([\\s\\S]+)$`).exec(text);
+    return match ? { question: match[1].trim() } : null;
 }
+
+// Hides anything that looks like an API key before showing an error in chat
+const hideKeys = (text) => String(text ?? '')
+    .replace(/(sk-|gsk_|xai-|AIza)[A-Za-z0-9_\-*.]{4,}/g, '[key]')
+    .replace(/\s+/g, ' ')
+    .slice(0, 160);
 
 async function askModel(ai, system, userText) {
     if (ai.kind === 'anthropic') {
@@ -132,9 +143,27 @@ export async function handleAiChat(message) {
         if (!AI_CHAT.enabled || !message.guild || message.author?.bot || message.webhookId || message.system) return;
         if (AI_CHAT.channelIds.length && !AI_CHAT.channelIds.includes(message.channelId)) return;
 
-        const asked = readQuestion(message.content);
-        if (!asked) return;
+        const parsed = readMessage(message.content);
+        if (!parsed) return;
 
+        const sendBox = (text) => message.channel.send({
+            embeds: [{
+                color: 0x010101,
+                description: `${text}\n-# request by ${escapeMarkdown(message.author.username)} (${message.author.id})`,
+            }],
+            allowedMentions: { parse: [] },
+        });
+
+        // Just the name, nothing else: say hi (no AI needed)
+        if (parsed.greeting) {
+            const nowHi = Date.now();
+            if (nowHi - (lastAsked.get(message.author.id) ?? 0) < AI_CHAT.userCooldown * 1000) return;
+            lastAsked.set(message.author.id, nowHi);
+            await sendBox(AI_CHAT.greeting);
+            return;
+        }
+
+        const asked = parsed.question;
         const ai = resolveAi();
         if (ai.error) {
             // Tell people at most once every 10 minutes, and log what to fix
@@ -168,9 +197,15 @@ export async function handleAiChat(message) {
             const detail = error.response?.data?.error?.message ?? error.response?.data?.message ?? error.message;
             logger.warn('AI chat request failed', { provider: ai.provider, model: ai.model, status, detail });
 
-            const text = status === 429
+            let text = status === 429
                 ? `${AI_CHAT.name} is too busy right now, try again in a bit`
                 : `${AI_CHAT.name} can't think right now, try again later`;
+
+            // Admins also see WHY it failed (keys are hidden), so they can fix it without digging in the logs
+            if (message.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
+                text += `\n-# admin info: ${ai.provider} / ${ai.model} / ${status ?? 'no response'}: ${hideKeys(detail)}`;
+            }
+
             await message.channel.send({ content: text, allowedMentions: { parse: [] } }).catch(() => {});
             return;
         }
@@ -178,15 +213,7 @@ export async function handleAiChat(message) {
         if (!answer) return;
 
         // Black-bordered box. Nobody can be pinged, whatever the AI writes.
-        await message.channel.send({
-            embeds: [{
-                color: 0x010101,
-                description:
-                    `${AI_CHAT.showName ? `**${AI_CHAT.name}:** ` : ''}${answer.slice(0, 1500)}\n`
-                    + `-# request by ${escapeMarkdown(message.author.username)} (${message.author.id})`,
-            }],
-            allowedMentions: { parse: [] },
-        });
+        await sendBox(`${AI_CHAT.showName ? `**${AI_CHAT.name}:** ` : ''}${answer.slice(0, 1500)}`);
     } catch (error) {
         logger.error('AI chat error:', error);
     }
