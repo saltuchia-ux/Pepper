@@ -27,13 +27,8 @@ export async function readGuildConfig(client, guildId, context = {}) {
             return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
         }
 
-        if (typeof client.db.isAvailable === 'function' && !client.db.isAvailable()) {
-            logger.warn(`PostgreSQL unavailable for readGuildConfig in guild ${guildId}`, {
-                traceId: context.traceId,
-                guildId,
-            });
-            return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
-        }
+        // Without PostgreSQL the database layer reads from its saved-file store, so keep reading from it
+        // (this used to return the defaults here, which made every saved setting look empty).
 
         const rawConfig = await client.db.get(getGuildConfigKey(guildId), null);
 
