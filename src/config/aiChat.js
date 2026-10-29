@@ -2,8 +2,16 @@
 //   Pepper what is 1 + 1     ->      its 2
 //                                    request by username (user id)
 //
-// NEEDS one setting on your host, same place as LASTFM_API_KEY:   ANTHROPIC_API_KEY
-// (a key from console.anthropic.com - using it costs a little money per answer)
+// WORKS WITH ANY AI COMPANY. Add ONE setting on your host (same place as LASTFM_API_KEY):
+//
+//   AI_API_KEY    your key from OpenAI, Google Gemini, Anthropic (Claude), OpenRouter, Groq, ...
+//
+// The bot works out which company the key is from by itself. Only if it can't, or you want to change things, add:
+//
+//   AI_PROVIDER   openai | gemini | anthropic | openrouter | groq | deepseek | mistral | xai | custom
+//   AI_MODEL      the model name to use (each company has its own list)
+//   AI_BASE_URL   only for "custom": the address of any OpenAI-style AI service
+
 export const AI_CHAT = {
     // Set to false to turn this off.
     enabled: true,
@@ -15,8 +23,11 @@ export const AI_CHAT = {
     // false = just the answer                   ("its 2")
     showName: false,
 
-    model: 'claude-haiku-5-5',
-    maxTokens: 300,
+    // null = the cheap default of your AI company. Or put a model name here (AI_MODEL on the host wins over this).
+    model: null,
+
+    // Room for the answer. Some models "think" first and use part of this, so keep it generous.
+    maxTokens: 800,
 
     // Each person has to wait this long between questions (seconds)
     userCooldown: 8,
