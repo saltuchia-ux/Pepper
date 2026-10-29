@@ -497,11 +497,33 @@ async function handleLeveling(
       return;
     }
 
+    // XP for this message: random between the min and max set in the leveling settings
+    const xpMin = levelingConfig.xpRange?.min ?? levelingConfig.xpPerMessage?.min ?? 15;
+    const xpMax = levelingConfig.xpRange?.max ?? levelingConfig.xpPerMessage?.max ?? 25;
+    const low = Math.max(1, Math.min(xpMin, xpMax));
+    const high = Math.max(low, xpMax);
+    const xpToAdd = Math.max(
+      1,
+      Math.round((Math.floor(Math.random() * (high - low + 1)) + low) * (levelingConfig.xpMultiplier || 1))
+    );
+
+    const levelMember =
+      message.member ??
+      await message.guild.members
+        .fetch(message.author.id)
+        .catch(() => null);
+
+    if (!levelMember) {
+      return;
+    }
+
+    // addXp(client, guild, member, xp) - it used to be called with the IDs and the message,
+    // which made it fail on every message ("xpSystem.addXp failed")
     await addXp(
       client,
-      message.guild.id,
-      message.author.id,
-      message
+      message.guild,
+      levelMember,
+      xpToAdd
     );
 
   } catch (error) {
