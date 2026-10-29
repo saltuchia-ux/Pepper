@@ -11,6 +11,14 @@ export const LINK_FILTER = {
     mediaRoleNames: ['mediaperms'],
     mediaRoleIds: [],
 
+    // Links ANYONE can send (no role needed). Everything else is deleted.
+    // Spotify: open.spotify.com links, spotify.link and spotify.app.link share links.
+    allowedForEveryone: [
+        'spotify.com',
+        'spotify.link',
+        'spotify.app.link',
+    ],
+
     // Link sites a media-role member may send.
     allowedMediaHosts: [
         'tenor.com',
