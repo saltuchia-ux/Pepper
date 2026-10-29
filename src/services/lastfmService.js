@@ -210,6 +210,19 @@ export async function getUserPlays(username, kind, artist, title) {
 // NOW PLAYING CARD  (used by .fm and by .lf cc triggers)
 // ------------------------------------------
 
+const linkText = (text) => String(text).replace(/([\\[\]])/g, '\\$1');
+const linkUrl = (url) => String(url).replace(/\(/g, '%28').replace(/\)/g, '%29');
+const artistUrl = (artist) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
+
+// Reacts with thumbs up / thumbs down under the card (works when the sent message is a normal message)
+export async function addVoteReactions(sent) {
+    if (typeof sent?.react !== 'function') return;
+    try {
+        await sent.react('👍');
+        await sent.react('👎');
+    } catch { /* no permission to react: not important */ }
+}
+
 export async function buildNowPlayingPayload(username, displayName) {
     const [track] = await getRecent(username, 1);
 
@@ -218,34 +231,49 @@ export async function buildNowPlayingPayload(username, displayName) {
     }
 
     let plays = null;
-    let loved = track.loved;
     let total = null;
+    let album = track.album || '';
+    let user = null;
 
     try {
-        const [info, user] = await Promise.all([
+        const [info, userInfo] = await Promise.all([
             call('track.getInfo', { artist: track.artist, track: track.name, username, autocorrect: 1 }).catch(() => null),
             getUserInfo(username).catch(() => null),
         ]);
+        user = userInfo;
         if (info?.track?.userplaycount !== undefined) plays = Number(info.track.userplaycount);
-        if (info?.track?.userloved === '1') loved = true;
-        if (user?.playcount) total = Number(user.playcount);
+        if (!album && info?.track?.album?.title) album = info.track.album.title;
+        if (userInfo?.playcount) total = Number(userInfo.playcount);
     } catch { /* extras are optional */ }
 
-    const embed = new EmbedBuilder()
-        .setColor(COLOR)
-        .setAuthor({ name: `${track.nowPlaying ? 'Now playing' : 'Last played'} - ${displayName}`, url: `https://www.last.fm/user/${encodeURIComponent(username)}` })
-        .setTitle(track.name)
-        .setDescription(`**${track.artist}**${track.album ? ` • ${track.album}` : ''}`);
+    const lastfmName = user?.name || username;
+    const trackLink = track.url
+        ? `[${linkText(track.name)}](${linkUrl(track.url)})`
+        : linkText(track.name);
 
-    if (track.url) embed.setURL(track.url);
-    if (track.image) embed.setThumbnail(track.image);
+    const footerBits = [];
+    if (plays !== null) footerBits.push(`Playcount: ${num(plays)}`);
+    if (total !== null) footerBits.push(`Total Scrobbles: ${num(total)}`);
+    if (album) footerBits.push(`Album: ${album}`);
 
-    const bits = [];
-    if (plays !== null) bits.push(`${num(plays)} plays`);
-    if (total !== null) bits.push(`${num(total)} total scrobbles`);
-    embed.setFooter({ text: `${loved ? '❤️ ' : ''}${bits.join(' • ') || 'Last.fm'}` });
+    // Plain embed object (not EmbedBuilder): the bot's embed helper hides footers and emojis
+    const embed = {
+        color: 0x010101,
+        author: {
+            name: `Last.fm: ${lastfmName}`,
+            url: `https://www.last.fm/user/${encodeURIComponent(lastfmName)}`,
+        },
+        fields: [
+            { name: 'Track', value: trackLink, inline: false },
+            { name: 'Artist', value: `[${linkText(track.artist)}](${linkUrl(artistUrl(track.artist))})`, inline: false },
+        ],
+    };
 
-    if (!track.nowPlaying && track.date) embed.setTimestamp(track.date * 1000);
+    const avatar = bestImage(user?.image);
+    if (avatar) embed.author.icon_url = avatar;
+    if (track.image) embed.thumbnail = { url: track.image };
+    if (footerBits.length) embed.footer = { text: footerBits.join(' • ') };
+    if (!track.nowPlaying && track.date) embed.timestamp = new Date(track.date * 1000).toISOString();
 
     return { embeds: [embed], allowedMentions: { parse: [] } };
 }

@@ -67,7 +67,9 @@ export async function enforceLinkFilter(message) {
         if (member.roles.cache.some((role) => LINK_FILTER.exemptRoleIds.includes(role.id))) return false;
 
         const mediaOnly = hasMediaRole(member);
-        const blocked = hosts.some((host) => !(mediaOnly && hostAllowed(host, LINK_FILTER.allowedMediaHosts)));
+        const blocked = hosts.some((host) =>
+            !(hostAllowed(host, LINK_FILTER.allowedForEveryone ?? [])
+                || (mediaOnly && hostAllowed(host, LINK_FILTER.allowedMediaHosts))));
         if (!blocked) return false;
 
         const me = message.guild.members.me;
