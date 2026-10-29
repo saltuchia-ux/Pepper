@@ -7,11 +7,15 @@ import { logger } from '../utils/logger.js';
 // Talks to ANY AI company. Settings on the host: AI_API_KEY (+ optional AI_PROVIDER, AI_MODEL, AI_BASE_URL)
 // ==========================================
 
+// Google keeps retiring its Gemini model names. This name always points to the CURRENT Flash model,
+// so the bot keeps working without anyone changing the model.
+const GEMINI_LATEST = 'gemini-flash-latest';
+
 // "kind" = how the company's API is shaped. Most use the OpenAI shape.
 const PROVIDERS = {
     anthropic: { kind: 'anthropic', url: 'https://api.anthropic.com/v1/messages', model: 'claude-haiku-5-5' },
     openai: { kind: 'openai', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', tokenParam: 'max_completion_tokens' },
-    gemini: { kind: 'gemini', base: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash' },
+    gemini: { kind: 'gemini', base: 'https://generativelanguage.googleapis.com/v1beta', model: GEMINI_LATEST },
     openrouter: { kind: 'openai', base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
     groq: { kind: 'openai', base: 'https://api.groq.com/openai/v1', model: 'llama-3.1-8b-instant' },
     deepseek: { kind: 'openai', base: 'https://api.deepseek.com', model: 'deepseek-chat' },
@@ -103,15 +107,30 @@ async function askModel(ai, system, userText) {
     }
 
     if (ai.kind === 'gemini') {
-        const { data } = await axios.post(`${ai.base}/models/${encodeURIComponent(ai.model)}:generateContent`, {
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: 'user', parts: [{ text: userText }] }],
-            generationConfig: { maxOutputTokens: AI_CHAT.maxTokens },
-        }, {
-            headers: { 'x-goog-api-key': ai.key, 'content-type': 'application/json' },
-            timeout: 25000,
-        });
-        return (data?.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('');
+        const askGemini = async (model) => {
+            const { data } = await axios.post(`${ai.base}/models/${encodeURIComponent(model)}:generateContent`, {
+                systemInstruction: { parts: [{ text: system }] },
+                contents: [{ role: 'user', parts: [{ text: userText }] }],
+                generationConfig: { maxOutputTokens: AI_CHAT.maxTokens },
+            }, {
+                headers: { 'x-goog-api-key': ai.key, 'content-type': 'application/json' },
+                timeout: 25000,
+            });
+            return (data?.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('');
+        };
+
+        try {
+            return await askGemini(ai.model);
+        } catch (error) {
+            // "This model is no longer available" (404): try the always-current model instead
+            if (error.response?.status === 404 && ai.model !== GEMINI_LATEST) {
+                logger.warn(`Gemini model ${ai.model} is not available anymore, switching to ${GEMINI_LATEST}`);
+                const answer = await askGemini(GEMINI_LATEST);
+                return answer;
+            }
+
+            throw error;
+        }
     }
 
     // OpenAI shape: OpenAI, OpenRouter, Groq, DeepSeek, Mistral, xAI and most others
