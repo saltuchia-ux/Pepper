@@ -17,7 +17,7 @@ export const AI_CHAT = {
     enabled: true,
 
     // The character's name. People must type it exactly like this (capital letters matter) to talk to it.
-    name: 'Pepper',
+    name: 'Caseoh',
 
     // A GIF link that is shown under EVERY answer. Put null (no quotes) to turn it off.
     replyGif: 'https://klipy.com/gifs/really-dude-caseoh-unbelievable-caseoh',
