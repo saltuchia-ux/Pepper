@@ -106,12 +106,49 @@ function readArgs(words, selfId) {
     return { target, period: period ?? fm.PERIODS.overall, left };
 }
 
-async function requireLink(interaction, targetId) {
+// Tries to link the person's Last.fm by itself, so nobody has to run ".lf set" first.
+// It tries the name they typed (if any), then their Discord username / display name.
+async function autoLink(interaction, userId, typedName = null) {
+    const guild = interaction.guild;
+    const member = guild?.members.cache.get(userId) ?? (await guild?.members.fetch(userId).catch(() => null));
+    const user = member?.user ?? (userId === interaction.user.id ? interaction.user : null);
+
+    const clean = (name) => String(name ?? '').trim().replace(/^https?:\/\/(www\.)?last\.fm\/user\//i, '').replace(/\/.*$/, '');
+    const tried = new Set();
+    const names = [typedName, user?.username, user?.globalName, member?.displayName]
+        .map(clean)
+        // Last.fm names: 2-15 characters, start with a letter, then letters / numbers / _ / -
+        .filter((name) => /^[A-Za-z][A-Za-z0-9_-]{1,14}$/.test(name))
+        .filter((name) => !tried.has(name.toLowerCase()) && tried.add(name.toLowerCase()));
+
+    for (const name of names.slice(0, 4)) {
+        try {
+            const info = await fm.getUserInfo(name);
+            await fm.setLink(userId, info.name);
+            logger.info('Last.fm linked automatically', { userId, lastfm: info.name });
+            // true when the bot guessed the name (not typed by the person)
+            interaction._linkWasGuess = !(typedName && clean(typedName).toLowerCase() === name.toLowerCase());
+            return info.name;
+        } catch (error) {
+            if (error instanceof fm.LastfmError && String(error.code) === '6') continue; // no such Last.fm user, try the next name
+            throw error;
+        }
+    }
+
+    return null;
+}
+
+async function requireLink(interaction, targetId, typedName = null) {
     const username = await fm.getLinkedUsername(targetId);
     if (username) return username;
 
     if (targetId === interaction.user.id) {
-        await warn(interaction, "You haven't linked Last.fm. Use `.lf set (username)`");
+        const found = await autoLink(interaction, targetId, typedName);
+        if (found) {
+            interaction._autoLinked = found;
+            return found;
+        }
+        await warn(interaction, "I couldn't find your Last.fm by your Discord name. Type your Last.fm name once, like `.fm rj`");
     } else {
         await warn(interaction, `<@${targetId}> hasn't linked Last.fm`);
     }
@@ -123,12 +160,22 @@ async function requireLink(interaction, targetId) {
 // ------------------------------------------
 
 async function doNowPlaying(interaction, words) {
-    const { target } = readArgs(words, interaction.user.id);
-    const username = await requireLink(interaction, target);
+    const { target, left } = readArgs(words, interaction.user.id);
+    const username = await requireLink(interaction, target, left[0] ?? null);
     if (!username) return;
 
     const name = await nameOf(interaction.guild, target);
-    return send(interaction, await fm.buildNowPlayingPayload(username, name));
+    const payload = await fm.buildNowPlayingPayload(username, name);
+
+    if (interaction._autoLinked) {
+        payload.content = interaction._linkWasGuess
+            ? `-# Linked to Last.fm **${interaction._autoLinked}** automatically. Wrong account? Use \`.lf set (your Last.fm name)\``
+            : `-# Linked to Last.fm **${interaction._autoLinked}**`;
+    }
+
+    const sent = await send(interaction, payload);
+    await fm.addVoteReactions(sent);
+    return sent;
 }
 
 async function doSet(interaction, words) {
@@ -166,7 +213,7 @@ async function doCc(interaction, words) {
             .setTitle('Command: lf cc')
             .setDescription(
                 (current ? `Your custom command is \`${current}\`\n\n` : '') +
-                'Set a word that shows your now playing when you type it\n```Syntax: .lf cc (text)\nExample: .lf cc np2\nRemove:  .lf cc remove```')));
+                'Set a word that shows your now playing when you type it (no setup needed)\n```Syntax: .lf cc (text)\nExample: .lf cc np2\nRemove:  .lf cc remove```')));
     }
 
     if (['remove', 'clear', 'off', 'delete', 'none'].includes(first)) {
@@ -174,10 +221,6 @@ async function doCc(interaction, words) {
         return removed
             ? send(interaction, successPayload(`<@${interaction.user.id}>: Your custom command was removed`))
             : warn(interaction, "You don't have a custom command");
-    }
-
-    if (!(await fm.getLinkedUsername(interaction.user.id))) {
-        return warn(interaction, 'Link Last.fm first with `.lf set (username)`');
     }
 
     const text = first.replace(/^\./, '');
@@ -196,9 +239,21 @@ async function doCc(interaction, words) {
         return warn(interaction, 'Someone in this server already uses that word');
     }
 
+    // No ".lf set" needed: link Last.fm here if it isn't linked yet (name typed after the word, or their Discord name)
+    let note = '';
+    if (!(await fm.getLinkedUsername(interaction.user.id))) {
+        const found = await autoLink(interaction, interaction.user.id, words[1] ?? null);
+        if (!found) {
+            return warn(interaction, `I couldn't find your Last.fm by your Discord name. Add your Last.fm name once: \`.lf cc ${text} (your Last.fm name)\``);
+        }
+        note = interaction._linkWasGuess
+            ? ` (Linked to Last.fm **${found}** automatically. Wrong account? Use \`.lf set (your Last.fm name)\`)`
+            : ` (Linked to Last.fm **${found}**)`;
+    }
+
     await fm.setCc(guild.id, interaction.user.id, text);
 
-    return send(interaction, successPayload(`<@${interaction.user.id}>: Done! Type \`${text}\` and I'll show what you're listening to`));
+    return send(interaction, successPayload(`<@${interaction.user.id}>: Done! Type \`${text}\` and I'll show what you're listening to${note}`));
 }
 
 async function doProfile(interaction, words) {
@@ -319,7 +374,7 @@ async function doWhoKnows(interaction, kind, words) {
     }
 
     const members = await serverListeners(guild);
-    if (!members.length) return warn(interaction, 'Nobody in this server linked Last.fm yet. Use `.lf set (username)`');
+    if (!members.length) return warn(interaction, 'Nobody in this server has used Last.fm yet. Try `.fm` first');
 
     const results = await fm.mapLimit(members, 5, async (m) => {
         const r = await fm.getUserPlays(m.username, kind, artist, title);
@@ -357,7 +412,7 @@ async function doArtistLb(interaction, words) {
 
     const { period } = readArgs(words, interaction.user.id);
     const members = await serverListeners(guild);
-    if (!members.length) return warn(interaction, 'Nobody in this server linked Last.fm yet. Use `.lf set (username)`');
+    if (!members.length) return warn(interaction, 'Nobody in this server has used Last.fm yet. Try `.fm` first');
 
     const all = await fm.mapLimit(members, 5, (m) => fm.getTop(m.username, 'artists', period[0], 50));
 
@@ -391,7 +446,7 @@ function doHelp(interaction) {
         .setTitle('Last.fm commands')
         .setDescription([
             '`.fm` or `.lf` - your now playing (`.fm @user` for someone else)',
-            '`.lf set (username)` - link Last.fm  •  `.lf remove` - unlink',
+            '`.lf set (username)` - use a different Last.fm account  •  `.lf remove` - unlink (not needed to start: `.fm` finds yours)',
             '`.lf cc (text)` - custom word: type it to show your now playing',
             '`.lf recent` - last 10 songs',
             '`.lf topartists` / `toptracks` / `topalbums` `[7d 1m 3m 6m 12m all]`',
