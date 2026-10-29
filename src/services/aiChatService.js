@@ -198,11 +198,14 @@ export async function handleAiChat(message) {
         const parsed = readMessage(message.content);
         if (!parsed) return;
 
+        // A normal message (no box, no border): the answer, a small grey line with who asked
+        // (username, not display name), and the GIF link under it (Discord shows the GIF itself).
         const sendBox = (text) => message.channel.send({
-            embeds: [{
-                color: 0x010101,
-                description: `${text}\n-# request by ${escapeMarkdown(message.author.username)} (${message.author.id})`,
-            }],
+            content: [
+                text,
+                `-# request sent by ${escapeMarkdown(message.author.username)} (${message.author.id})`,
+                AI_CHAT.replyGif || '',
+            ].filter(Boolean).join('\n'),
             allowedMentions: { parse: [] },
         });
 
@@ -264,7 +267,7 @@ export async function handleAiChat(message) {
 
         if (!answer) return;
 
-        // Black-bordered box. Nobody can be pinged, whatever the AI writes.
+        // Nobody can be pinged, whatever the AI writes.
         await sendBox(`${AI_CHAT.showName ? `**${AI_CHAT.name}:** ` : ''}${answer.slice(0, 1500)}`);
     } catch (error) {
         logger.error('AI chat error:', error);
