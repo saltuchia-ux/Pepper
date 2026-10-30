@@ -95,6 +95,89 @@ const hideKeys = (text) => String(text ?? '')
     .replace(/\s+/g, ' ')
     .slice(0, 160);
 
+// ==========================================
+// Asking several Gemini models "like a relay race":
+//  - the first model is asked right away
+//  - if it has not answered after 7 seconds (or it fails), the next model is asked too
+//  - the first answer wins, the others are cancelled
+// So one slow or broken model does not make the bot wait forever.
+// ==========================================
+const GEMINI_TIMEOUT_MS = 40000;   // longest wait for ONE model
+const HEDGE_DELAY_MS = 7000;       // after this long, the next model is asked as well
+const MAX_WAIT_MS = 45000;         // longest wait in total
+
+function raceModels(models, askOne) {
+    return new Promise((resolve, reject) => {
+        const controllers = [];
+        const timers = [];
+        const tried = [];
+        let done = false;
+        let running = 0;
+        let nextIndex = 0;
+        let lastError;
+
+        const finish = (callback, value) => {
+            if (done) return;
+            done = true;
+            timers.forEach(clearTimeout);
+            controllers.forEach((controller) => controller.abort());
+            callback(value);
+        };
+
+        const fail = (error) => {
+            error.triedModels = [...tried];
+            finish(reject, error);
+        };
+
+        const startNext = () => {
+            if (done || nextIndex >= models.length) return false;
+
+            const model = models[nextIndex++];
+            const controller = new AbortController();
+
+            controllers.push(controller);
+            tried.push(model);
+            running++;
+
+            askOne(model, controller.signal).then(
+                (answer) => finish(resolve, answer),
+                (error) => {
+                    running--;
+
+                    if (done) return;
+
+                    lastError = error;
+
+                    const status = error.response?.status;
+
+                    logger.warn(`Gemini model ${model} failed (${status ?? error.message})`);
+
+                    // a wrong key or a bad request: another model will not help
+                    if (status && ![404, 429, 500, 502, 503, 504].includes(status)) {
+                        return fail(error);
+                    }
+
+                    // this model is down or too busy: ask the next one right away
+                    if (!startNext() && running === 0) fail(lastError);
+                },
+            );
+
+            return true;
+        };
+
+        startNext();
+
+        for (let i = 1; i < models.length; i++) {
+            timers.push(setTimeout(() => startNext(), HEDGE_DELAY_MS * i));
+        }
+
+        timers.push(setTimeout(
+            () => fail(lastError ?? new Error(`no model answered within ${MAX_WAIT_MS / 1000} seconds`)),
+            MAX_WAIT_MS,
+        ));
+    });
+}
+
 async function askModel(ai, system, userText) {
     if (ai.kind === 'anthropic') {
         const { data } = await axios.post(ai.url, {
@@ -110,7 +193,7 @@ async function askModel(ai, system, userText) {
     }
 
     if (ai.kind === 'gemini') {
-        const ask = async (model, { thinking, timeout }) => {
+        const ask = async (model, { thinking, signal }) => {
             const { data } = await axios.post(`${ai.base}/models/${encodeURIComponent(model)}:generateContent`, {
                 systemInstruction: { parts: [{ text: system }] },
                 contents: [{ role: 'user', parts: [{ text: userText }] }],
@@ -121,49 +204,27 @@ async function askModel(ai, system, userText) {
                 },
             }, {
                 headers: { 'x-goog-api-key': ai.key, 'content-type': 'application/json' },
-                timeout,
+                timeout: GEMINI_TIMEOUT_MS,
+                signal,
             });
             return (data?.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('');
         };
 
-        // The model from the settings first, then the two Gemini names that always exist
-        const models = [...new Set([ai.model, GEMINI_FAST, GEMINI_LATEST])];
-        const startedAt = Date.now();
-        const tried = [];
-        let lastError;
-
-        for (const model of models) {
-            // do not keep people waiting forever
-            if (tried.length && Date.now() - startedAt > 35000) break;
-
-            tried.push(model);
-
+        // one model: first without "thinking"; if the model refuses that setting (400) ask again without it
+        const askOne = async (model, signal) => {
             try {
-                try {
-                    return await ask(model, { thinking: true, timeout: tried.length === 1 ? 20000 : 15000 });
-                } catch (error) {
-                    // some models do not accept the "no thinking" setting: ask again without it
-                    if (error.response?.status === 400) {
-                        return await ask(model, { thinking: false, timeout: 15000 });
-                    }
-
-                    throw error;
-                }
+                return await ask(model, { thinking: true, signal });
             } catch (error) {
-                lastError = error;
+                if (error.response?.status === 400 && !signal.aborted) {
+                    return ask(model, { thinking: false, signal });
+                }
 
-                const status = error.response?.status;
-                const slowOrDown = !error.response || [404, 500, 502, 503, 504].includes(status);
-
-                logger.warn(`Gemini model ${model} failed (${status ?? error.message})`);
-
-                if (!slowOrDown) break;
+                throw error;
             }
-        }
+        };
 
-        if (lastError) lastError.triedModels = tried;
-
-        throw lastError;
+        // The model from the settings first, then the two Gemini names that always exist
+        return raceModels([...new Set([ai.model, GEMINI_FAST, GEMINI_LATEST])], askOne);
     }
 
     // OpenAI shape: OpenAI, OpenRouter, Groq, DeepSeek, Mistral, xAI and most others
@@ -198,14 +259,15 @@ export async function handleAiChat(message) {
         const parsed = readMessage(message.content);
         if (!parsed) return;
 
-        // A normal message (no box, no border): the answer, a small grey line with who asked
-        // (username, not display name), and the GIF link under it (Discord shows the GIF itself).
+        // A normal message (no box, no border): the answer and a small grey line with who asked
+        // (username, not display name). The GIF link is hidden inside an invisible link,
+        // so only the GIF itself is shown.
         const sendBox = (text) => message.channel.send({
             content: [
                 text,
-                `-# request sent by ${escapeMarkdown(message.author.username)} (${message.author.id})`,
-                AI_CHAT.replyGif || '',
-            ].filter(Boolean).join('\n'),
+                `-# request sent by ${escapeMarkdown(message.author.username)} (${message.author.id})` +
+                    (AI_CHAT.replyGif ? ` [\u200b](${AI_CHAT.replyGif})` : ''),
+            ].join('\n'),
             allowedMentions: { parse: [] },
         });
 
@@ -239,6 +301,9 @@ export async function handleAiChat(message) {
 
         await message.channel.sendTyping?.().catch(() => {});
 
+        // "typing..." goes away after 10 seconds, so it is shown again while we wait
+        const typingTimer = setInterval(() => message.channel.sendTyping?.().catch(() => {}), 8000);
+
         const askerName = message.member?.displayName ?? message.author.username;
         let answer;
         try {
@@ -248,6 +313,7 @@ export async function handleAiChat(message) {
                 `${askerName} asks: ${asked.slice(0, AI_CHAT.maxQuestionLength)}`,
             )).trim();
         } catch (error) {
+            clearInterval(typingTimer);
             const status = error.response?.status;
             const detail = error.response?.data?.error?.message ?? error.response?.data?.message ?? error.message;
             logger.warn('AI chat request failed', { provider: ai.provider, model: ai.model, status, detail });
@@ -264,6 +330,8 @@ export async function handleAiChat(message) {
             await message.channel.send({ content: text, allowedMentions: { parse: [] } }).catch(() => {});
             return;
         }
+
+        clearInterval(typingTimer);
 
         if (!answer) return;
 
