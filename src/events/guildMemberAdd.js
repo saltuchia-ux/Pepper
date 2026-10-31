@@ -1,4 +1,4 @@
-import { Events, EmbedBuilder, PermissionFlagsBits, ChannelType, resolveColor } from 'discord.js';
+import { Events, EmbedBuilder, PermissionFlagsBits, ChannelType, resolveColor, AttachmentBuilder } from 'discord.js';
 import { WELCOME_DEFAULTS } from '../config/welcomeDefaults.js';
 import { getColor, botConfig } from '../config/bot.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
@@ -127,6 +127,20 @@ export default {
                         embeds: [embed],
                         allowedMentions
                     });
+                }
+
+                // Welcome voice message (set with /welcome setvm): sent as its own
+                // message right after, so it never blocks the text welcome above.
+                if (welcomeConfig.welcomeVoiceMessage?.url && permissions.has(PermissionFlagsBits.AttachFiles)) {
+                    try {
+                        const attachment = new AttachmentBuilder(
+                            welcomeConfig.welcomeVoiceMessage.url,
+                            { name: welcomeConfig.welcomeVoiceMessage.name || 'welcome-voice-message.mp3' }
+                        );
+                        await channel.send({ files: [attachment] });
+                    } catch (voiceMessageError) {
+                        logger.warn(`Could not send the welcome voice message in guild ${guild.id}:`, voiceMessageError);
+                    }
                 }
             }
         }
