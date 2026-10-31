@@ -19,7 +19,7 @@ import {
 import { missingPermission, syntaxReply, userNotFoundReply } from '../../utils/punishmentTools.js';
 import { boxPayload, COLORS } from '../../utils/replyStyle.js';
 
-// Used when you do not type a time:  .mute @user
+// Used when you do not type a time:  .mute @user .timeout @user
 const DEFAULT_TIMEOUT_MINUTES = 10;
 
 // Discord does not allow a timeout longer than 28 days
