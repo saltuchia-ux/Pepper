@@ -88,9 +88,7 @@ async function nukeByClone(interaction, channel) {
         return nukeByDeleting(interaction, channel);
     }
 
-    await fresh
-        .send({ content: `🧹 ${interaction.user} wiped this channel.` })
-        .catch(() => {});
+    await fresh.send({ content: 'DONE BOSS' }).catch(() => {});
 }
 
 // ----- SLOW: delete messages in batches of 100 -----
@@ -98,7 +96,6 @@ async function nukeByClone(interaction, channel) {
 // requested WHILE the current batch is being deleted, without fetching the same messages twice.
 async function nukeByDeleting(interaction, channel) {
     try {
-        let totalDeleted = 0;
         let cursor;   // the oldest message ID seen so far
         let nextBatch = fetchBatch(channel);
 
@@ -119,7 +116,6 @@ async function nukeByDeleting(interaction, channel) {
 
                 if (!deleted) break;
 
-                totalDeleted += deleted.size;
 
                 if (deleted.size < recent.size) break;   // Discord refused to delete older messages: stop here
             }
@@ -127,9 +123,7 @@ async function nukeByDeleting(interaction, channel) {
             if (recent.size < messages.size) break;   // the rest of the channel is older than 2 weeks
         }
 
-        await InteractionHelper.universalReply(interaction, {
-            content: `🧹 Deleted **${totalDeleted}** messages.`,
-        });
+        await InteractionHelper.universalReply(interaction, { content: 'DONE BOSS' });
     } catch (error) {
         await InteractionHelper.universalReply(interaction, {
             content: '❌ I could not delete the messages. Make sure the bot has **Manage Messages** permission.',
