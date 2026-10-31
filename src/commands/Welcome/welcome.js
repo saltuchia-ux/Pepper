@@ -31,7 +31,19 @@ export default {
                 .addBooleanOption(option =>
                     option.setName('ping')
                         .setDescription('Whether to ping the user in the welcome message')
-                        .setRequired(false))),
+                        .setRequired(false)))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('setvm')
+                .setDescription('Set a voice message that plays for every new member')
+                .addAttachmentOption(option =>
+                    option.setName('audio')
+                        .setDescription('An audio file (mp3, ogg, wav, m4a, webm)')
+                        .setRequired(true)))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('removevm')
+                .setDescription('Remove the welcome voice message')),
 
     async execute(interaction) {
         try {
@@ -56,6 +68,60 @@ export default {
         }
 
         const subcommand = options.getSubcommand();
+
+        if (subcommand === 'setvm') {
+            const attachment = options.getAttachment('audio');
+            const AUDIO_EXTENSIONS = /\.(mp3|ogg|wav|m4a|webm|flac|aac)$/i;
+            const isAudio = attachment.contentType?.startsWith('audio/') || AUDIO_EXTENSIONS.test(attachment.name || '');
+
+            if (!isAudio) {
+                return await replyUserError(interaction, {
+                    type: ErrorTypes.VALIDATION,
+                    message: 'That file does not look like an audio file. Upload an mp3, ogg, wav, m4a or webm file.',
+                });
+            }
+
+            const MAX_SIZE = 8 * 1024 * 1024; // 8 MB, safe for every server's upload limit
+
+            if (attachment.size > MAX_SIZE) {
+                return await replyUserError(interaction, {
+                    type: ErrorTypes.VALIDATION,
+                    message: `That file is too big (${(attachment.size / 1024 / 1024).toFixed(1)} MB). Keep it under 8 MB.`,
+                });
+            }
+
+            await updateWelcomeConfig(client, guild.id, {
+                welcomeVoiceMessage: { url: attachment.url, name: attachment.name },
+            });
+
+            logger.info(`[Welcome] Voice message set by ${interaction.user.tag} for guild ${guild.name} (${guild.id})`);
+
+            const embed = new EmbedBuilder()
+                .setColor(getColor('success'))
+                .setTitle('Welcome Voice Message Set')
+                .setDescription(`\`${attachment.name}\` will now be sent as an attachment with every welcome message.`)
+                .setFooter({ text: 'It is sent as a normal audio attachment, not the purple "voice message" bubble.' });
+
+            return await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+        }
+
+        if (subcommand === 'removevm') {
+            const existingConfig = await getWelcomeConfig(client, guild.id);
+
+            if (!existingConfig?.welcomeVoiceMessage) {
+                return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'There is no welcome voice message set.' });
+            }
+
+            await updateWelcomeConfig(client, guild.id, { welcomeVoiceMessage: null });
+
+            logger.info(`[Welcome] Voice message removed by ${interaction.user.tag} for guild ${guild.name} (${guild.id})`);
+
+            const embed = new EmbedBuilder()
+                .setColor(getColor('success'))
+                .setTitle('Welcome Voice Message Removed');
+
+            return await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+        }
 
         if (subcommand === 'setup') {
             const channel = options.getChannel('channel');
