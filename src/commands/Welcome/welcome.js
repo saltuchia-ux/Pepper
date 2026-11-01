@@ -5,6 +5,42 @@ import { formatWelcomeMessage, truncateForEmbedField } from '../../utils/welcome
 import { logger } from '../../utils/logger.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { ErrorTypes, replyUserError } from '../../utils/errorHandler.js';
+import { getPrefixText, errorBox } from '../../utils/punishmentTools.js';
+
+
+const VM_AUDIO_EXTENSIONS = /\.(mp3|ogg|wav|m4a|webm|flac|aac)$/i;
+const VM_MAX_SIZE = 8 * 1024 * 1024; // 8 MB, safe for every server's upload limit
+
+// Checks an attachment is a usable audio file. Returns { ok: true } or { ok: false, message }.
+function checkVoiceMessageAttachment(attachment) {
+    if (!attachment) {
+        return { ok: false, message: 'Attach an audio file (mp3, ogg, wav, m4a, webm) to set a welcome voice message.' };
+    }
+
+    const isAudio = attachment.contentType?.startsWith('audio/') || VM_AUDIO_EXTENSIONS.test(attachment.name || '');
+
+    if (!isAudio) {
+        return { ok: false, message: 'That file does not look like an audio file. Upload an mp3, ogg, wav, m4a or webm file.' };
+    }
+
+    if (attachment.size > VM_MAX_SIZE) {
+        return { ok: false, message: `That file is too big (${(attachment.size / 1024 / 1024).toFixed(1)} MB). Keep it under 8 MB.` };
+    }
+
+    return { ok: true };
+}
+
+function buildVoiceMessageSetEmbed(name) {
+    return new EmbedBuilder()
+        .setColor(getColor('success'))
+        .setTitle('Welcome Voice Message Set')
+        .setDescription(`\`${name}\` will now be sent as an attachment with every welcome message.`)
+        .setFooter({ text: 'It is sent as a normal audio attachment, not the purple "voice message" bubble.' });
+}
+
+function buildVoiceMessageRemovedEmbed() {
+    return new EmbedBuilder().setColor(getColor('success')).setTitle('Welcome Voice Message Removed');
+}
 
 export default {
     data: new SlashCommandBuilder()
@@ -71,23 +107,10 @@ export default {
 
         if (subcommand === 'setvm') {
             const attachment = options.getAttachment('audio');
-            const AUDIO_EXTENSIONS = /\.(mp3|ogg|wav|m4a|webm|flac|aac)$/i;
-            const isAudio = attachment.contentType?.startsWith('audio/') || AUDIO_EXTENSIONS.test(attachment.name || '');
+            const check = checkVoiceMessageAttachment(attachment);
 
-            if (!isAudio) {
-                return await replyUserError(interaction, {
-                    type: ErrorTypes.VALIDATION,
-                    message: 'That file does not look like an audio file. Upload an mp3, ogg, wav, m4a or webm file.',
-                });
-            }
-
-            const MAX_SIZE = 8 * 1024 * 1024; // 8 MB, safe for every server's upload limit
-
-            if (attachment.size > MAX_SIZE) {
-                return await replyUserError(interaction, {
-                    type: ErrorTypes.VALIDATION,
-                    message: `That file is too big (${(attachment.size / 1024 / 1024).toFixed(1)} MB). Keep it under 8 MB.`,
-                });
+            if (!check.ok) {
+                return await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: check.message });
             }
 
             await updateWelcomeConfig(client, guild.id, {
@@ -96,13 +119,7 @@ export default {
 
             logger.info(`[Welcome] Voice message set by ${interaction.user.tag} for guild ${guild.name} (${guild.id})`);
 
-            const embed = new EmbedBuilder()
-                .setColor(getColor('success'))
-                .setTitle('Welcome Voice Message Set')
-                .setDescription(`\`${attachment.name}\` will now be sent as an attachment with every welcome message.`)
-                .setFooter({ text: 'It is sent as a normal audio attachment, not the purple "voice message" bubble.' });
-
-            return await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+            return await InteractionHelper.safeEditReply(interaction, { embeds: [buildVoiceMessageSetEmbed(attachment.name)] });
         }
 
         if (subcommand === 'removevm') {
@@ -116,11 +133,7 @@ export default {
 
             logger.info(`[Welcome] Voice message removed by ${interaction.user.tag} for guild ${guild.name} (${guild.id})`);
 
-            const embed = new EmbedBuilder()
-                .setColor(getColor('success'))
-                .setTitle('Welcome Voice Message Removed');
-
-            return await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
+            return await InteractionHelper.safeEditReply(interaction, { embeds: [buildVoiceMessageRemovedEmbed()] });
         }
 
         if (subcommand === 'setup') {
@@ -186,5 +199,89 @@ export default {
                 await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'An error occurred while configuring the welcome system. Please try again.' });
             }
         }
+    },
+
+    // Prefix command:
+    //   .welcome setvm       (with an audio file attached to the SAME message)
+    //   .welcome removevm
+    // Only setvm/removevm work as a prefix command. The full /welcome setup (channel,
+    // message, ping, image) stays slash-only and needs Manage Server, same as before.
+    // setvm/removevm here only need Ban Members, so staff without Manage Server can
+    // still set the voice message.
+    async prefixExecute(interaction, config, client) {
+        const guild = interaction.guild;
+
+        if (!guild) {
+            return InteractionHelper.universalReply(interaction, {
+                embeds: [errorBox('Server only', 'This command can only be used in a server.')],
+                ephemeral: true,
+            });
+        }
+
+        if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
+            return InteractionHelper.universalReply(interaction, {
+                embeds: [
+                    errorBox(
+                        'Missing permission',
+                        'You need the **Ban Members** permission to use `.welcome setvm` or `.welcome removevm`.'
+                    ),
+                ],
+                ephemeral: true,
+            });
+        }
+
+        const action = getPrefixText(interaction, 'welcome').split(/\s+/)[0]?.toLowerCase();
+
+        if (action === 'removevm') {
+            const existingConfig = await getWelcomeConfig(client ?? interaction.client, guild.id);
+
+            if (!existingConfig?.welcomeVoiceMessage) {
+                return InteractionHelper.universalReply(interaction, {
+                    embeds: [errorBox('Nothing to remove', 'There is no welcome voice message set.')],
+                    ephemeral: true,
+                });
+            }
+
+            await updateWelcomeConfig(client ?? interaction.client, guild.id, { welcomeVoiceMessage: null });
+
+            logger.info(`[Welcome] Voice message removed by ${interaction.user.tag} for guild ${guild.name} (${guild.id})`);
+
+            return InteractionHelper.universalReply(interaction, { embeds: [buildVoiceMessageRemovedEmbed()] });
+        }
+
+        if (action === 'setvm') {
+            // Prefix commands read the real Discord message directly, the same way the
+            // text after ".welcome" is read, since there is no slash-style attachment option.
+            const realMessage = interaction.message ?? interaction._responseCoordinator?.message ?? null;
+            const attachment = realMessage?.attachments?.first?.() ?? null;
+
+            const check = checkVoiceMessageAttachment(attachment);
+
+            if (!check.ok) {
+                return InteractionHelper.universalReply(interaction, {
+                    embeds: [errorBox('No usable file', `${check.message}\nAttach it to the same message: \`.welcome setvm\` with the file attached.`)],
+                    ephemeral: true,
+                });
+            }
+
+            await updateWelcomeConfig(client ?? interaction.client, guild.id, {
+                welcomeVoiceMessage: { url: attachment.url, name: attachment.name },
+            });
+
+            logger.info(`[Welcome] Voice message set by ${interaction.user.tag} for guild ${guild.name} (${guild.id})`);
+
+            return InteractionHelper.universalReply(interaction, { embeds: [buildVoiceMessageSetEmbed(attachment.name)] });
+        }
+
+        return InteractionHelper.universalReply(interaction, {
+            embeds: [
+                errorBox(
+                    'What should I do?',
+                    'Use `.welcome setvm` with an audio file attached, or `.welcome removevm`.\n' +
+                    'For the full setup (channel, message, image) use `/welcome setup` - that one still needs Manage Server.'
+                ),
+            ],
+            ephemeral: true,
+        });
     },
 };
