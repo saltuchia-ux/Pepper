@@ -208,6 +208,7 @@ async function processDue(client) {
             const sent = await deliver(client, entry);
 
             if (sent) {
+                logger.info(`Reminder sent to ${entry.userId}`);
                 finished.add(entry.id);
                 continue;
             }
@@ -233,6 +234,8 @@ async function processDue(client) {
 // Call this once when the bot is ready (it is added to ready.js)
 export function startReminderChecker(client) {
     if (checker) return;
+
+    logger.info('Reminder checker started');
 
     processDue(client);
 

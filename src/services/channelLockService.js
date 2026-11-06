@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, OverwriteType, PermissionFlagsBits } from 'discord.js';
 import { getFromDb, setInDb, deleteFromDb } from '../utils/database.js';
 import { InteractionHelper } from '../utils/interactionHelper.js';
 import { plainReply, missingPermission } from '../utils/punishmentTools.js';
@@ -40,16 +40,44 @@ function snapshot(channel, targetId, names) {
     return Object.fromEntries(names.map((name) => [name, stateOf(overwrite, name)]));
 }
 
-// Sets the permissions, then removes the overwrite again if it became empty
-async function applyPermissions(channel, target, patch, reason) {
-    await channel.permissionOverwrites.edit(target, patch, { reason });
+// Builds the NEW full list of permission overwrites for the channel.
+// "changes" is a Map:  id -> { SendMessages: true | false | null, ... }   (null = not set)
+// Everything is sent to Discord in ONE request, which is much faster than changing one by one.
+function buildOverwrites(channel, changes) {
+    const result = new Map();
 
-    const id = typeof target === 'string' ? target : target.id;
-    const overwrite = channel.permissionOverwrites.cache.get(id);
-
-    if (overwrite && overwrite.allow.bitfield === 0n && overwrite.deny.bitfield === 0n) {
-        await overwrite.delete(reason).catch(() => {});
+    for (const overwrite of channel.permissionOverwrites.cache.values()) {
+        result.set(overwrite.id, {
+            id: overwrite.id,
+            type: overwrite.type,
+            allow: overwrite.allow.bitfield,
+            deny: overwrite.deny.bitfield,
+        });
     }
+
+    for (const [id, patch] of changes) {
+        const entry = result.get(id) ?? {
+            id,
+            type: channel.guild.roles.cache.has(id) ? OverwriteType.Role : OverwriteType.Member,
+            allow: 0n,
+            deny: 0n,
+        };
+
+        for (const [name, value] of Object.entries(patch)) {
+            const flag = PermissionFlagsBits[name];
+
+            entry.allow &= ~flag;
+            entry.deny &= ~flag;
+
+            if (value === true) entry.allow |= flag;
+            if (value === false) entry.deny |= flag;
+        }
+
+        result.set(id, entry);
+    }
+
+    // empty overwrites are not needed
+    return [...result.values()].filter((entry) => entry.allow !== 0n || entry.deny !== 0n);
 }
 
 function isTextChannel(channel) {
@@ -77,37 +105,36 @@ async function lockChannel(channel, moderator) {
 
     // Already locked by the bot: keep the ORIGINAL "before" state, so unlock goes back to it
     const everyoneNow = snapshot(channel, everyoneId, LOCKED_FOR_EVERYONE);
-    const alreadyLocked = saved && everyoneNow.SendMessages === false;
-
-    const before = {
-        everyone: alreadyLocked ? saved.before.everyone : everyoneNow,
-        roles: alreadyLocked ? saved.before.roles : {},
-        bot: alreadyLocked ? saved.before.bot : snapshot(channel, botId, ALLOWED_FOR_STAFF),
-    };
+    const alreadyLocked = Boolean(saved?.before) && everyoneNow.SendMessages === false;
 
     // Every role that has the Ban Members permission can still type
     const staffRoles = channel.guild.roles.cache.filter(
         (role) => role.id !== everyoneId && role.permissions.has(PermissionFlagsBits.BanMembers),
     );
 
-    if (!alreadyLocked) {
-        for (const role of staffRoles.values()) {
-            before.roles[role.id] = snapshot(channel, role.id, ALLOWED_FOR_STAFF);
-        }
-    }
-
-    // Save first, so .unlock can always undo it
-    await setInDb(keyFor(channel.id), { before });
+    const before = alreadyLocked
+        ? saved.before
+        : {
+            everyone: everyoneNow,
+            roles: Object.fromEntries(
+                [...staffRoles.keys()].map((id) => [id, snapshot(channel, id, ALLOWED_FOR_STAFF)]),
+            ),
+            bot: snapshot(channel, botId, ALLOWED_FOR_STAFF),
+        };
 
     const allow = Object.fromEntries(ALLOWED_FOR_STAFF.map((name) => [name, true]));
     const deny = Object.fromEntries(LOCKED_FOR_EVERYONE.map((name) => [name, false]));
 
-    for (const role of staffRoles.values()) {
-        await applyPermissions(channel, role, allow, reason);
-    }
+    const changes = new Map();
+    for (const id of staffRoles.keys()) changes.set(id, allow);
+    changes.set(botId, allow);
+    changes.set(everyoneId, deny);
 
-    await applyPermissions(channel, botId, allow, reason);
-    await applyPermissions(channel, everyoneId, deny, reason);
+    // ONE request to Discord, and the "before" state is saved at the same time
+    await Promise.all([
+        channel.permissionOverwrites.set(buildOverwrites(channel, changes), reason),
+        alreadyLocked ? Promise.resolve() : setInDb(keyFor(channel.id), { before }),
+    ]);
 }
 
 async function unlockChannel(channel, moderator) {
@@ -117,26 +144,25 @@ async function unlockChannel(channel, moderator) {
 
     const saved = await getFromDb(keyFor(channel.id), null).catch(() => null);
 
+    const changes = new Map();
+
     if (saved?.before) {
         // Put everybody back the way they were
-        await applyPermissions(channel, everyoneId, saved.before.everyone, reason);
+        changes.set(everyoneId, saved.before.everyone);
 
         for (const [roleId, state] of Object.entries(saved.before.roles || {})) {
-            if (channel.guild.roles.cache.has(roleId)) {
-                await applyPermissions(channel, roleId, state, reason);
-            }
+            if (channel.guild.roles.cache.has(roleId)) changes.set(roleId, state);
         }
 
-        await applyPermissions(channel, botId, saved.before.bot, reason);
-
-        await deleteFromDb(keyFor(channel.id)).catch(() => {});
-        return;
+        changes.set(botId, saved.before.bot);
+    } else {
+        // The bot did not lock this channel (no saved state): just give typing back to everyone
+        changes.set(everyoneId, Object.fromEntries(LOCKED_FOR_EVERYONE.map((name) => [name, null])));
     }
 
-    // The bot did not lock this channel (no saved state): just give typing back to everyone
-    const open = Object.fromEntries(LOCKED_FOR_EVERYONE.map((name) => [name, null]));
+    await channel.permissionOverwrites.set(buildOverwrites(channel, changes), reason);
 
-    await applyPermissions(channel, everyoneId, open, reason);
+    if (saved?.before) await deleteFromDb(keyFor(channel.id)).catch(() => {});
 }
 
 // Shared by .lock and .unlock  (lock = true / false)
