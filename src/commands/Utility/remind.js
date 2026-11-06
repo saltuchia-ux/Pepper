@@ -5,6 +5,7 @@ import {
     formatTime,
     cleanText,
     addReminder,
+    startReminderChecker,
     countReminders,
     MIN_MS,
     MAX_MS,
@@ -58,6 +59,9 @@ async function createReminder(interaction, text, timeText) {
         text: reminderText,
         ms: parsed.ms,
     });
+
+    // makes sure the checker is running (it normally starts when the bot starts)
+    startReminderChecker(interaction.client);
 
     // the text is NOT repeated here, only the time
     return plainReply(interaction, `Got it, I'll remind you in **${formatTime(parsed.ms)}**`);
