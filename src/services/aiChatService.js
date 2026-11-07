@@ -45,7 +45,7 @@ function detectProvider(key) {
 }
 
 /** Works out which AI to use from the host settings. */
-export function resolveAi(env = process.env) {
+export function resolveAi(env = process.env, character = AI_CHAT) {
     let key = env.AI_API_KEY?.trim();
     let provider = env.AI_PROVIDER?.trim().toLowerCase();
 
@@ -64,7 +64,7 @@ export function resolveAi(env = process.env) {
     if (!provider || !PROVIDERS[provider]) return { error: 'noprovider' };
 
     const def = PROVIDERS[provider];
-    const model = env.AI_MODEL?.trim() || AI_CHAT.model || def.model;
+    const model = env.AI_MODEL?.trim() || character.model || def.model;
     const base = (env.AI_BASE_URL?.trim() || def.base || '').replace(/\/+$/, '');
 
     if (!model) return { error: 'nomodel', provider };
@@ -80,12 +80,12 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // "Pepper what is 1 + 1"  ->  { question: "what is 1 + 1" }   (capital letters matter; "pepper ..." does nothing)
 // "Pepper" on its own     ->  { greeting: true }
-function readMessage(content) {
+function readMessage(content, character = AI_CHAT) {
     const text = String(content ?? '').trim();
 
-    if (new RegExp(`^${escapeRegExp(AI_CHAT.name)}[\\s,.:!?]*$`).test(text)) return { greeting: true };
+    if (new RegExp(`^${escapeRegExp(character.name)}[\\s,.:!?]*$`).test(text)) return { greeting: true };
 
-    const match = new RegExp(`^${escapeRegExp(AI_CHAT.name)}[\\s,:!?]+([\\s\\S]+)$`).exec(text);
+    const match = new RegExp(`^${escapeRegExp(character.name)}[\\s,:!?]+([\\s\\S]+)$`).exec(text);
     return match ? { question: match[1].trim() } : null;
 }
 
@@ -178,11 +178,11 @@ function raceModels(models, askOne) {
     });
 }
 
-async function askModel(ai, system, userText) {
+async function askModel(ai, system, userText, maxTokens = AI_CHAT.maxTokens) {
     if (ai.kind === 'anthropic') {
         const { data } = await axios.post(ai.url, {
             model: ai.model,
-            max_tokens: AI_CHAT.maxTokens,
+            max_tokens: maxTokens,
             system,
             messages: [{ role: 'user', content: userText }],
         }, {
@@ -198,7 +198,7 @@ async function askModel(ai, system, userText) {
                 systemInstruction: { parts: [{ text: system }] },
                 contents: [{ role: 'user', parts: [{ text: userText }] }],
                 generationConfig: {
-                    maxOutputTokens: AI_CHAT.maxTokens,
+                    maxOutputTokens: maxTokens,
                     // chatting does not need long "thinking", it only makes the answer slow
                     ...(thinking ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
                 },
@@ -230,7 +230,7 @@ async function askModel(ai, system, userText) {
     // OpenAI shape: OpenAI, OpenRouter, Groq, DeepSeek, Mistral, xAI and most others
     const { data } = await axios.post(`${ai.base}/chat/completions`, {
         model: ai.model,
-        [ai.tokenParam]: AI_CHAT.maxTokens,
+        [ai.tokenParam]: maxTokens,
         messages: [
             { role: 'system', content: system },
             { role: 'user', content: userText },
@@ -251,44 +251,52 @@ const SETUP_NOTES = {
     nobase: () => 'The bot owner must add `AI_BASE_URL` (the address of the AI service)',
 };
 
-export async function handleAiChat(message) {
+// "character" = which AI character to talk as (src/config/aiChat.js = Caseoh, src/config/aiPepper.js = Pepper).
+// All characters use the SAME AI key.
+export async function handleAiChat(message, character = AI_CHAT) {
     try {
-        if (!AI_CHAT.enabled || !message.guild || message.author?.bot || message.webhookId || message.system) return;
-        if (AI_CHAT.channelIds.length && !AI_CHAT.channelIds.includes(message.channelId)) return;
+        if (!character.enabled || !message.guild || message.author?.bot || message.webhookId || message.system) return;
+        if (character.channelIds.length && !character.channelIds.includes(message.channelId)) return;
 
-        const parsed = readMessage(message.content);
+        const parsed = readMessage(message.content, character);
         if (!parsed) return;
+
+        // each character has its own cooldown, so asking one does not block the other
+        const cooldownKey = `${character.name}:${message.author.id}`;
 
         // A normal message (no box, no border): the answer and a small grey line with who asked
         // (username, not display name). The GIF link is hidden inside an invisible link,
         // so only the GIF itself is shown.
-        const sendBox = (text) => message.channel.send({
+        const sendBox = (text, label = character.footerLabel ?? 'request sent by') => message.channel.send({
             content: [
                 text,
-                `-# request sent by ${escapeMarkdown(message.author.username)} (${message.author.id})` +
-                    (AI_CHAT.replyGif ? ` [\u200b](${AI_CHAT.replyGif})` : ''),
+                `-# ${label} ${escapeMarkdown(message.author.username)} (${message.author.id})` +
+                    (character.replyGif ? ` [\u200b](${character.replyGif})` : ''),
             ].join('\n'),
             allowedMentions: { parse: [] },
         });
 
         // Just the name, nothing else: say hi (no AI needed)
         if (parsed.greeting) {
+            // greeting: null = just "Pepper" with no question does nothing
+            if (!character.greeting) return;
+
             const nowHi = Date.now();
-            if (nowHi - (lastAsked.get(message.author.id) ?? 0) < AI_CHAT.userCooldown * 1000) return;
-            lastAsked.set(message.author.id, nowHi);
-            await sendBox(AI_CHAT.greeting);
+            if (nowHi - (lastAsked.get(cooldownKey) ?? 0) < character.userCooldown * 1000) return;
+            lastAsked.set(cooldownKey, nowHi);
+            await sendBox(character.greeting, character.greetingFooterLabel);
             return;
         }
 
         const asked = parsed.question;
-        const ai = resolveAi();
+        const ai = resolveAi(process.env, character);
         if (ai.error) {
             // Tell people at most once every 10 minutes, and log what to fix
-            if (Date.now() - (lastWarning.get(ai.error) ?? 0) > 10 * 60 * 1000) {
-                lastWarning.set(ai.error, Date.now());
+            if (Date.now() - (lastWarning.get(`${character.name}:${ai.error}`) ?? 0) > 10 * 60 * 1000) {
+                lastWarning.set(`${character.name}:${ai.error}`, Date.now());
                 logger.warn(`AI chat is not set up (${ai.error}): ${SETUP_NOTES[ai.error]()}`);
                 await message.channel.send({
-                    content: `${AI_CHAT.name} isn't set up yet. ${SETUP_NOTES[ai.error]()}`,
+                    content: `${character.name} isn't set up yet. ${SETUP_NOTES[ai.error]()}`,
                     allowedMentions: { parse: [] },
                 }).catch(() => {});
             }
@@ -296,8 +304,8 @@ export async function handleAiChat(message) {
         }
 
         const now = Date.now();
-        if (now - (lastAsked.get(message.author.id) ?? 0) < AI_CHAT.userCooldown * 1000) return;
-        lastAsked.set(message.author.id, now);
+        if (now - (lastAsked.get(cooldownKey) ?? 0) < character.userCooldown * 1000) return;
+        lastAsked.set(cooldownKey, now);
 
         await message.channel.sendTyping?.().catch(() => {});
 
@@ -309,8 +317,9 @@ export async function handleAiChat(message) {
         try {
             answer = (await askModel(
                 ai,
-                AI_CHAT.persona.replaceAll('{name}', AI_CHAT.name),
-                `${askerName} asks: ${asked.slice(0, AI_CHAT.maxQuestionLength)}`,
+                character.persona.replaceAll('{name}', character.name),
+                `${askerName} asks: ${asked.slice(0, character.maxQuestionLength)}`,
+                character.maxTokens,
             )).trim();
         } catch (error) {
             clearInterval(typingTimer);
@@ -319,8 +328,8 @@ export async function handleAiChat(message) {
             logger.warn('AI chat request failed', { provider: ai.provider, model: ai.model, status, detail });
 
             let text = status === 429
-                ? `${AI_CHAT.name} is too busy right now, try again in a bit`
-                : `${AI_CHAT.name} can't think right now, try again later`;
+                ? `${character.name} is too busy right now, try again in a bit`
+                : `${character.name} can't think right now, try again later`;
 
             // Admins also see WHY it failed (keys are hidden), so they can fix it without digging in the logs
             if (message.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
@@ -336,7 +345,7 @@ export async function handleAiChat(message) {
         if (!answer) return;
 
         // Nobody can be pinged, whatever the AI writes.
-        await sendBox(`${AI_CHAT.showName ? `**${AI_CHAT.name}:** ` : ''}${answer.slice(0, 1500)}`);
+        await sendBox(`${character.showName ? `**${character.name}:** ` : ''}${answer.slice(0, 1500)}`);
     } catch (error) {
         logger.error('AI chat error:', error);
     }
