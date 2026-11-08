@@ -9,7 +9,7 @@ import {
 import { addXp } from '../services/leveling/xpSystem.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { executePrefixCommand } from '../utils/messageAdapter.js';
-import { resolveCommandAlias } from '../config/commands/commandAliases.js';
+import { findCommandByTrigger } from '../utils/commandSettingsEngine.js';
 import { FEATURES } from '../config/features.js';
 
 import {
@@ -113,9 +113,8 @@ async function handlePrefixCommand(
       return;
     }
 
-    const command =
-      client.commands.get(commandName) ??
-      client.commands.get(resolveCommandAlias(commandName));
+    // which command does this word run?  (settings: src/config/commandSettings.js)
+    const command = await findCommandByTrigger(client, commandName, message.guild?.id);
 
     if (!command) {
       return;
