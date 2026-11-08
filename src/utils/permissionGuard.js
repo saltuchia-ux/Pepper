@@ -5,6 +5,7 @@ import { missingPermissionPayload } from './replyStyle.js';
 import { logger } from './logger.js';
 import { replyUserError, ErrorTypes } from './errorHandler.js';
 import { isBotOwner, getBotMessage } from '../config/bot.js';
+import { checkCommandAccess, grantAllPermissions } from './commandSettingsEngine.js';
 
 /**
  * Read default_member_permissions from a SlashCommandBuilder (or its JSON).
@@ -151,6 +152,27 @@ export async function checkModerationPermissions(
  */
 export async function enforceDefaultCommandPermissions(interaction, command, context = {}) {
   if (isBotOwner(interaction.user?.id)) {
+    return true;
+  }
+
+  // src/config/commandSettings.js: a command can be turned off, or have its own "access" that replaces the built-in rule
+  const custom = await checkCommandAccess(interaction, command);
+
+  if (custom === 'disabled' || custom === 'deny') {
+    await replyUserError(interaction, {
+      type: custom === 'disabled' ? ErrorTypes.CONFIGURATION : ErrorTypes.PERMISSION,
+      message: custom === 'disabled' ? 'This command is turned off.' : getBotMessage('noPermission'),
+      context: {
+        source: context.source ?? 'permissionGuard.enforceDefaultCommandPermissions',
+        commandName: command?.data?.name ?? interaction.commandName ?? 'command',
+      },
+    });
+
+    return false;
+  }
+
+  if (custom === 'allow') {
+    grantAllPermissions(interaction);
     return true;
   }
 
