@@ -58,7 +58,7 @@ app-admin         [ 'app-admin' ]                          default       # built
 apply             [ 'apply' ]                              default       # built-in: none
 
 # ================= CORE =================
-commands          [ 'commands' ]                           default       # built-in: ManageGuild
+commands          [ 'commands' 'cmds' ]                           default       # built-in: ManageGuild
 configwizard      [ 'configwizard' ]                       default       # built-in: ManageGuild
 help              [ 'help' 'h' 'info' ]                    default       # built-in: none
 messages          [ 'messages' ]                           default       # built-in: Administrator
@@ -91,7 +91,7 @@ work              [ 'work' ]                               default       # built
 # ================= FUN =================
 count             [ 'count' ]                              default       # built-in: ManageGuild
 fight             [ 'fight' ]                              default       # built-in: none
-flip              [ 'flip' 'coin' ]                        default       # built-in: none
+flip              [ 'flip' 'coin' 'cf' ]                        default       # built-in: none
 quote             [ 'quote' ]                              default       # built-in: none
 roll              [ 'roll' 'dice' ]                        default       # built-in: none
 
@@ -118,32 +118,28 @@ logging           [ 'logging' ]                            default       # built
 # ================= MODERATION =================
 ban               [ 'ban' ]                                default       # built-in: BanMembers
 counting          [ 'counting' ]                           default       # built-in: Administrator
-crole             [ 'crole' ]                              default       # built-in: KickMembers
 cs                [ 'cs' ]                                 default       # built-in: ManageMessages
 dhs               [ 'dhs' 'delete' 'd' ]                   default       # built-in: ModerateMembers
 ehs               [ 'ehs' 'edit' 'e' ]                     default       # built-in: ModerateMembers
 es                [ 'es' ]                                 default       # built-in: ManageMessages
 fn                [ 'fn' ]                                 default       # built-in: BanMembers
-grole             [ 'grole' ]                              default       # built-in: ManageRoles
 hs                [ 'hs' ]                                 default       # built-in: ModerateMembers
 jail              [ 'jail' ]                               default       # built-in: ModerateMembers
 jailsetup         [ 'jailsetup' ]                          default       # built-in: Administrator
-kick              [ 'kick' ]                               default       # built-in: KickMembers
+kick              [ 'kick' 'gtfo' ]                               default       # built-in: KickMembers
 lock              [ 'lock' ]                               default       # built-in: BanMembers
-mrole             [ 'mrole' ]                              default       # built-in: ManageRoles
 ms                [ 'ms' ]                                 default       # built-in: ModerateMembers
-mute              [ 'mute' ]                               default       # built-in: ModerateMembers
+mute              [ 'mute' 'timeout' 'stfu' ]                               default       # built-in: ModerateMembers
 nick              [ 'nick' ]                               default       # built-in: ManageNicknames
 nuck              [ 'nuck' ]                               default       # built-in: Administrator
-role              [ 'role' ]                               default       # built-in: BanMembers
+role              [ 'role' ]                               default       # built-in: ManageRoles
 s                 [ 's' ]                                  default       # built-in: ManageMessages
 setcounting       [ 'setcounting' ]                        default       # built-in: BanMembers
-tempban           [ 'tempban' ]                            default       # built-in: BanMembers
-trole             [ 'trole' ]                              default       # built-in: ManageRoles
-unban             [ 'unban' ]                              default       # built-in: BanMembers
+tempban           [ 'tempban' 'tb' ]                            default       # built-in: BanMembers
+unban             [ 'unban' 'ub' ]                              default       # built-in: BanMembers
 unjail            [ 'unjail' ]                             default       # built-in: ModerateMembers
 unlock            [ 'unlock' ]                             default       # built-in: BanMembers
-unmute            [ 'unmute' ]                             default       # built-in: ModerateMembers
+unmute            [ 'unmute' 'untimeout' ]                             default       # built-in: ModerateMembers
 warn              [ 'warn' ]                               default       # built-in: ModerateMembers
 
 # ================= MUSIC =================
