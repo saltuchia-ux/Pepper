@@ -73,6 +73,8 @@ const warn = (interaction, text) =>
 
 const embedPayload = (embed) => ({ embeds: [embed], allowedMentions: { parse: [] } });
 
+const LASTFM_JOIN_URL = 'https://www.last.fm/join';
+
 const profileUrl = (name) => `https://www.last.fm/user/${encodeURIComponent(name)}`;
 
 function errorText(error) {
@@ -148,7 +150,7 @@ async function requireLink(interaction, targetId, typedName = null) {
             interaction._autoLinked = found;
             return found;
         }
-        await warn(interaction, "I couldn't find your Last.fm by your Discord name. Type your Last.fm name once, like `.fm rj`");
+        await warn(interaction, `New to Last.fm? Make a free account here: <${LASTFM_JOIN_URL}>\nAlready have one? Type your Last.fm name once, like \`.fm rj\``);
     } else {
         await warn(interaction, `<@${targetId}> hasn't linked Last.fm`);
     }
@@ -244,7 +246,7 @@ async function doCc(interaction, words) {
     if (!(await fm.getLinkedUsername(interaction.user.id))) {
         const found = await autoLink(interaction, interaction.user.id, words[1] ?? null);
         if (!found) {
-            return warn(interaction, `I couldn't find your Last.fm by your Discord name. Add your Last.fm name once: \`.lf cc ${text} (your Last.fm name)\``);
+            return warn(interaction, `New to Last.fm? Make a free account here: <${LASTFM_JOIN_URL}>\nAlready have one? Add your Last.fm name once: \`.lf cc ${text} (your Last.fm name)\``);
         }
         note = interaction._linkWasGuess
             ? ` (Linked to Last.fm **${found}** automatically. Wrong account? Use \`.lf set (your Last.fm name)\`)`
