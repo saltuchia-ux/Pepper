@@ -147,7 +147,7 @@ unmute            [ 'unmute' ]                             default       # built
 warn              [ 'warn' ]                               default       # built-in: ModerateMembers
 
 # ================= MUSIC =================
-fm                [ 'fm' ]                                 default       # built-in: none
+fm                [ 'fm' 'lf' 'lastfm' 'wk' 'whoknows' 'wkt' 'whoknowstrack' 'wka' 'whoknowsalbum' 'ta' 'topartists' 'tt' 'toptracks' 'tal' 'topalbums' 'recent' 'artistlb' ]   default       # built-in: none
 join              [ 'join' ]                               default       # built-in: none
 music             [ 'music' ]                              default       # built-in: none
 nowplaying        [ 'nowplaying' 'np' 'now' ]              default       # built-in: none
