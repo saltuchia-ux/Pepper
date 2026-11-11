@@ -28,7 +28,16 @@ import { infoPayload } from '../../utils/replyStyle.js';
 //   .role r (user) (role)                take a role away     (.role remove)
 //   .role r (user) (new role), (old role)   swap: FIRST role is added,
 //                                           SECOND role is taken away (.role replace)
+//   .role e (role) #ff0000               change a role's color  (.role edit)
+//   .role e (role) (new name)            rename a role
+//   .role e (role) (one emoji)           set the role icon  (needs Boost Level 2)
+//   .role e (role) #ff0000 New Name 🔥   ...or all of them in one command
+//   .role d (role)  /  (role 1), (role 2)   delete roles  (.role delete)
 //   .role restore (user)                 give saved roles back
+//
+//   Two-word triggers work too. Add them in commandSettings.js on the role line, e.g.
+//   role   [ 'role' 'give role' 'replace role' 'remove role' 'create role' 'edit role' 'delete role' ]
+//   then  .give role cool kids John   is the same as   .role g cool kids John
 //
 //   One role after .role r  ->  it is only removed.
 //   Two roles after .role r ->  the first is added, the second is removed.
@@ -41,18 +50,30 @@ import { infoPayload } from '../../utils/replyStyle.js';
 const ACTIONS = {
     c: 'create',
     create: 'create',
+    make: 'create',
+    mrole: 'create',
     g: 'give',
     give: 'give',
+    add: 'give',
+    grole: 'give',
     r: 'change',
     remove: 'change',
     replace: 'change',
+    change: 'change',
+    crole: 'change',
+    trole: 'change',
+    e: 'edit',
+    edit: 'edit',
+    d: 'delete',
+    del: 'delete',
+    delete: 'delete',
     restore: 'restore',
 };
 
 export default {
     data: new SlashCommandBuilder()
         .setName('role')
-        .setDescription('Role tools: create, give, remove, replace, restore')
+        .setDescription('Role tools: create, give, remove, replace, edit, delete, restore')
         .addSubcommand((subcommand) =>
             subcommand
                 .setName('create')
@@ -105,6 +126,31 @@ export default {
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName('edit')
+                .setDescription('Change a role\'s color, name or emoji icon')
+                .addRoleOption((option) =>
+                    option.setName('role').setDescription('Role to edit').setRequired(true),
+                )
+                .addStringOption((option) =>
+                    option.setName('name').setDescription('New name for the role').setRequired(false),
+                )
+                .addStringOption((option) =>
+                    option.setName('color').setDescription('New color, e.g. #ff0000').setRequired(false),
+                )
+                .addStringOption((option) =>
+                    option.setName('emoji').setDescription('One emoji for the role icon (server needs Boost Level 2)').setRequired(false),
+                ),
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName('delete')
+                .setDescription('Delete a role')
+                .addRoleOption((option) =>
+                    option.setName('role').setDescription('Role to delete').setRequired(true),
+                ),
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName('restore')
                 .setDescription('Give a person their roles back (saved for 2 hours after a jail, kick or ban)')
                 .addUserOption((option) =>
@@ -146,6 +192,24 @@ export default {
             return restoreRoles(interaction, user.id, member);
         }
 
+        if (subcommand === 'edit') {
+            const changes = {
+                name: interaction.options.getString('name')?.trim() || null,
+                color: interaction.options.getString('color')?.trim() || null,
+                emoji: interaction.options.getString('emoji')?.trim() || null,
+            };
+
+            if (!changes.name && !changes.color && !changes.emoji) {
+                return fail(interaction, 'Give me something to change: a **name**, a **color** or an **emoji**.');
+            }
+
+            return editRole(interaction, interaction.options.getRole('role'), changes);
+        }
+
+        if (subcommand === 'delete') {
+            return deleteRoles(interaction, [interaction.options.getRole('role')]);
+        }
+
         const user = interaction.options.getUser('user');
         const member =
             interaction.options.getMember('user') ||
@@ -178,13 +242,32 @@ export default {
             });
         }
 
-        const text = getPrefixText(interaction, 'role');
-        const [firstWord = ''] = text.split(/\s+/);
-        const action = ACTIONS[firstWord.toLowerCase()];
+        // the text after the trigger (".role g cool kids John" -> "g cool kids John")
+        let restText = getPrefixText(interaction, 'role');
+
+        // 1) the trigger itself can say what to do:  ".give role ..."  ".replace role ..."  ".role c ..."
+        const message = interaction.message ?? interaction._responseCoordinator?.message ?? null;
+        const triggerWords = String(message?.prefixTrigger ?? '').split(' ').filter(Boolean);
+        let action = null;
+
+        for (const word of triggerWords) {
+            if (ACTIONS[word]) {
+                action = ACTIONS[word];
+                break;
+            }
+        }
+
+        // 2) otherwise it is the first word after .role
+        if (!action) {
+            const [firstWord = ''] = restText.split(/\s+/);
+
+            action = ACTIONS[firstWord.toLowerCase()];
+
+            if (action) restText = restText.slice(firstWord.length).trim();
+        }
 
         if (!action) return syntaxReply(interaction, 'role');
 
-        const restText = text.slice(firstWord.length).trim();
         const words = restText.split(/\s+/).filter(Boolean);
 
         // .role c (name) (#color)
@@ -205,6 +288,44 @@ export default {
             }
 
             return restoreRoles(interaction, target.id, target.member);
+        }
+
+        // .role e (role) #color   |   .role e (role) (new name)   |   .role e (role) (emoji)
+        if (action === 'edit') {
+            if (words.length < 2) return syntaxReply(interaction, 'role edit');
+
+            const parsed = await splitEditText(guild, words);
+
+            if (!parsed) return syntaxReply(interaction, 'role edit');
+
+            const { role, error } = await findRole(guild, parsed.roleText);
+
+            if (!role) return fail(interaction, error);
+
+            // color, name and emoji can all be given at once
+            const changes = parseEditValue(parsed.value);
+
+            if (!changes.name && !changes.color && !changes.emoji) return syntaxReply(interaction, 'role edit');
+
+            return editRole(interaction, role, changes);
+        }
+
+        // .role d (role)   or   .role d (role 1), (role 2)
+        if (action === 'delete') {
+            if (!words.length) return syntaxReply(interaction, 'role delete');
+
+            const roles = [];
+            const missing = [];
+
+            for (const roleText of await splitDeleteTexts(guild, words)) {
+                // delete only finds EXACT names / IDs / mentions, so a typo can never delete the wrong role
+                const role = await findExactRole(guild, roleText);
+
+                if (role) roles.push(role);
+                else missing.push(roleText);
+            }
+
+            return deleteRoles(interaction, roles, missing);
         }
 
         // .role g (role) (user)
@@ -294,18 +415,31 @@ function plainName(text) {
         .trim();
 }
 
-// True when the whole text is exactly one role's name
-async function hasExactRole(guild, text) {
+// Finds a role by EXACT name, ID or @mention (no guessing). Returns the role or null.
+// strict = true: the name must match letter for letter (ignoring capitals); emoji and symbols count
+async function findExactRole(guild, text, strict = false) {
     await guild.roles.fetch().catch(() => null);
 
-    const wanted = text.toLowerCase();
-    const clean = plainName(text);
+    const wanted = String(text).trim();
+    const id = wanted.match(/^<@&(\d+)>$/)?.[1] ?? (/^\d{15,25}$/.test(wanted) ? wanted : null);
 
-    return guild.roles.cache.some(
-        (role) =>
-            role.id !== guild.id &&
-            (role.name.toLowerCase() === wanted || (clean && plainName(role.name) === clean)),
+    if (id) return guild.roles.cache.get(id) ?? null;
+
+    const lower = wanted.toLowerCase();
+    const clean = plainName(wanted);
+
+    return (
+        guild.roles.cache.find(
+            (role) =>
+                role.id !== guild.id &&
+                (role.name.toLowerCase() === lower || (!strict && clean && plainName(role.name) === clean)),
+        ) ?? null
     );
+}
+
+// True when the whole text is exactly one role
+async function hasExactRole(guild, text, strict = false) {
+    return Boolean(await findExactRole(guild, text, strict));
 }
 
 // Turns the role words into 1 or 2 role texts.
@@ -369,6 +503,108 @@ async function findUser(guild, words, preferStart) {
     }
 
     return null;
+}
+
+const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
+
+// exactly ONE emoji: 🔥  👍🏽  🏳️‍🌈  🇳🇱  or a server emoji <:name:id> / <a:name:id>
+const EMOJI_ONLY =
+    /^(?:<a?:\w+:\d+>|\p{Regional_Indicator}{2}|\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?)*)$/u;
+
+// ".role e" text  ->  { roleText, value }
+//   "cool kids #ff0000"      ->  role "cool kids", value "#ff0000"
+//   "cool kids, New Name"    ->  role "cool kids", value "New Name"   (a , > -> or | splits them)
+//   "cool kids New"          ->  the longest start that is exactly a role's name is the role
+//   "cool kids 🔥"           ->  role "cool kids", value "🔥"
+async function splitEditText(guild, words) {
+    const text = words.join(' ').trim();
+
+    // finds the first separator (, > -> |) with something on both sides
+    const splitAtSeparator = () => {
+        for (const separator of ROLE_SEPARATORS) {
+            const at = text.indexOf(separator);
+
+            if (at > 0) {
+                const roleText = text.slice(0, at).trim();
+                const value = text.slice(at + separator.length).trim();
+
+                if (roleText && value) return { roleText, value };
+            }
+        }
+
+        return null;
+    };
+
+    // 1) a separator right after a role that exists:  "cool kids, New Name"
+    const separated = splitAtSeparator();
+
+    if (separated && await hasExactRole(guild, separated.roleText)) return separated;
+
+    if (words.length < 2) return null;
+
+    // 2) the longest start of the text that is exactly a role:  "cool kids #ff0000 New Name 🔥"
+    //    (first letter for letter, then ignoring emoji, so "cool kids 🔥 Chill" does not eat the 🔥)
+    for (const strict of [true, false]) {
+        for (let count = words.length - 1; count >= 1; count--) {
+            const roleText = words.slice(0, count).join(' ');
+
+            if (await hasExactRole(guild, roleText, strict)) {
+                return { roleText, value: words.slice(count).join(' ') };
+            }
+        }
+    }
+
+    // 3) no exact role name (a typo, so it is guessed later): a #color at the end
+    const last = words[words.length - 1];
+
+    if (HEX_COLOR.test(last)) return { roleText: words.slice(0, -1).join(' '), value: last };
+
+    // 4) split at the separator, or take the first word as the role
+    return separated ?? { roleText: words[0], value: words.slice(1).join(' ') };
+}
+
+// What to change, from the text after the role. Color, name and emoji can all be in ONE command:
+//   "#827272 Chill Crew 🔥"   ->  { color: "#827272", name: "Chill Crew", emoji: "🔥" }
+//   • a #hex word anywhere     = the color
+//   • ONE emoji as the LAST word = the icon   (an emoji at the front stays in the name: "🔥 Chill Crew")
+//   • everything else          = the new name
+function parseEditValue(value) {
+    let words = value.split(/\s+/).filter(Boolean);
+    let color = null;
+    let emoji = null;
+
+    const colorAt = words.findIndex((word) => HEX_COLOR.test(word));
+
+    if (colorAt !== -1) {
+        color = words[colorAt];
+        words = words.filter((word, index) => index !== colorAt);
+    }
+
+    if (words.length && EMOJI_ONLY.test(words[words.length - 1])) {
+        emoji = words.pop();
+    }
+
+    return { name: words.join(' ') || null, color, emoji };
+}
+
+// ".role d" text  ->  the role texts to delete
+//   "Old, Older"       ->  ["Old", "Older"]
+//   "cool kids"        ->  ["cool kids"]      (one role with a space in its name)
+//   "Old Older"        ->  ["Old", "Older"]   (when each word is a role)
+async function splitDeleteTexts(guild, words) {
+    const text = words.join(' ').trim();
+
+    if (/[,|]/.test(text)) {
+        return text.split(/[,|]/).map((part) => part.trim()).filter(Boolean);
+    }
+
+    if (words.length === 1 || await hasExactRole(guild, text)) return [text];
+
+    for (const word of words) {
+        if (!(await hasExactRole(guild, word))) return [text];
+    }
+
+    return words;
 }
 
 // ------------------------------------------
@@ -579,6 +815,143 @@ async function changeRoles(interaction, member, { add = null, remove = null }) {
             (notes.length ? `\n\n${notes.join('\n')}` : ''),
         ),
     );
+}
+
+// ------------------------------------------
+// .role e   (edit a role: color, name or emoji icon)
+// ------------------------------------------
+
+async function editRole(interaction, role, { name = null, color = null, emoji = null }) {
+    const problem = await roleProblem(interaction, [role]);
+
+    if (problem) return fail(interaction, problem);
+
+    const guild = interaction.guild;
+    const reason = `Edited by ${interaction.user.tag}`;
+
+    // check everything first, so nothing is half changed
+    if (name !== null) {
+        name = name.trim();
+
+        if (!name) return fail(interaction, 'The new name cannot be empty.');
+        if (name.length > 100) return fail(interaction, 'Role names can be at most 100 characters long.');
+
+        if (/<a?:\w+:\d+>/.test(name)) {
+            return fail(interaction, 'Server emojis cannot be used in a role name. Use a normal emoji like 🔥 instead.');
+        }
+    }
+
+    if (color !== null) {
+        if (!/^#?[0-9A-Fa-f]{6}$/.test(color)) {
+            return fail(interaction, 'Invalid color. Use a hex color like #ff7527.');
+        }
+
+        color = color.startsWith('#') ? color : `#${color}`;
+    }
+
+    let iconUrl = null;
+    let skipIcon = false;
+
+    if (emoji !== null) {
+        if (!EMOJI_ONLY.test(emoji)) return fail(interaction, 'Send exactly **one** emoji for the icon.');
+
+        // role icons are a Boost Level 2 perk
+        if (!guild.features.includes('ROLE_ICONS')) {
+            if (name === null && color === null) {
+                return fail(
+                    interaction,
+                    'Role icons need this server to have **Boost Level 2**, and it does not have it yet.',
+                );
+            }
+
+            // the rest of the changes still go through
+            skipIcon = true;
+        } else {
+            const custom = emoji.match(/^<a?:\w+:(\d+)>$/);
+
+            // server emojis (also animated ones) become a still picture, Discord has no moving role icons
+            if (custom) iconUrl = `https://cdn.discordapp.com/emojis/${custom[1]}.png?size=128`;
+        }
+    }
+
+    const before = role.name;
+    const changes = [];
+
+    try {
+        let updated = role;
+
+        if (name !== null || color !== null) {
+            updated = await role.edit({
+                ...(name !== null && { name }),
+                ...(color !== null && { color }),
+                reason,
+            });
+
+            if (name !== null) changes.push(`name: **${before}** → **${updated.name}**`);
+            if (color !== null) changes.push(`color: **${color}**`);
+        }
+
+        if (emoji !== null && !skipIcon) {
+            if (iconUrl) await updated.setIcon(iconUrl, reason);
+            else await updated.setUnicodeEmoji(emoji, reason);
+
+            changes.push(`icon: ${emoji}`);
+        }
+
+        return InteractionHelper.universalReply(interaction, {
+            content:
+                `✅ Updated **${updated.name}**\n${changes.join('\n')}` +
+                (skipIcon ? '\n⚠️ Icon skipped: role icons need **Boost Level 2** on this server.' : ''),
+            allowedMentions: { parse: [] },
+        });
+    } catch (error) {
+        console.error('ROLE EDIT ERROR:', error);
+
+        const partly = changes.length ? `\n(Already changed: ${changes.join(', ')})` : '';
+
+        return fail(interaction, `Discord rejected the change.\nError: ${error.message}${partly}`);
+    }
+}
+
+// ------------------------------------------
+// .role d   (delete one or more roles)
+// ------------------------------------------
+
+async function deleteRoles(interaction, roles, missing = []) {
+    const unique = [...new Map(roles.map((role) => [role.id, role])).values()];
+    const deleted = [];
+    const failed = missing.map((text) => `**${text}**: no role with exactly that name, ID or mention`);
+
+    for (const role of unique) {
+        const problem = await roleProblem(interaction, [role]);
+
+        if (problem) {
+            failed.push(`**${role.name}**: ${problem}`);
+            continue;
+        }
+
+        try {
+            const name = role.name;
+
+            await role.delete(`Deleted by ${interaction.user.tag}`);
+            deleted.push(name);
+        } catch (error) {
+            console.error('ROLE DELETE ERROR:', error);
+
+            failed.push(`**${role.name}**: Discord rejected it (${error.message})`);
+        }
+    }
+
+    if (!deleted.length) return fail(interaction, failed.join('\n') || 'No roles to delete.');
+
+    let response = `🗑️ Deleted ${deleted.map((name) => `**${name}**`).join(', ')}.`;
+
+    if (failed.length) response += `\n\n❌ Could not delete:\n${failed.join('\n')}`;
+
+    return InteractionHelper.universalReply(interaction, {
+        content: response,
+        allowedMentions: { parse: [] },
+    });
 }
 
 // ------------------------------------------
