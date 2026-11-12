@@ -70,8 +70,9 @@ export async function enforceMediaOnly(message) {
 
         await message.delete().catch(() => null);
 
+        // only says something when sendWarning is true in the config (default: just delete, say nothing)
         const last = warnCooldown.get(message.author.id) ?? 0;
-        if (Date.now() - last > 10000) {
+        if (MEDIA_ONLY.sendWarning && Date.now() - last > 10000) {
             warnCooldown.set(message.author.id, Date.now());
             const notice = await message.channel.send({
                 content: MEDIA_ONLY.warning.replace('{user}', `<@${message.author.id}>`),
