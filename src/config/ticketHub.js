@@ -21,6 +21,16 @@ export const TICKET_HUB = {
     ideasMinLevel: 0, // 0 = no level needed. Set a number (e.g. 20) to require that level for Ideas tickets
     customRoleLevel: 25, // only shown in the panel text (claiming custom role happens in a General ticket)
 
+    // Staff Application rules. A ticket is ONLY made if the member meets all of them.
+    staffApp: {
+        // The staff application panel posts itself in the channel with this name (emojis/symbols ignored), e.g. #staff-apply.
+        // The channel must already exist. The old #tickets panel is not changed.
+        panelChannelName: 'staff-apply',
+        minLevel: 20,
+        minAge: 14,
+        maxWarnings: 0, // "good history" = no warnings. Set higher to allow some.
+    },
+
     types: {
         general: {
             label: 'General',
@@ -52,8 +62,19 @@ export const TICKET_HUB = {
                 + '`2.` Today\'s date\n\n'
                 + '**Your face must be visible.**',
         },
+        staff: {
+            label: 'Staff Application',
+            emoji: '🌙',
+            style: 'Danger', // red
+            minLevel: 20, // kept in sync with staffApp.minLevel below
+            application: true, // opens the 2-step application form instead of the normal reason box
+            intro: '',
+        },
     },
 };
+
+// Keep the staff level in one place.
+TICKET_HUB.types.staff.minLevel = TICKET_HUB.staffApp.minLevel;
 
 // Ideas tickets follow the single ideasMinLevel setting above.
 TICKET_HUB.types.ideas.minLevel = TICKET_HUB.ideasMinLevel;
