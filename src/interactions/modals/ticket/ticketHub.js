@@ -1,3 +1,3 @@
-import { hubTicketModalHandler } from '../../../handlers/ticketHubButtons.js';
+import { hubTicketModalHandler, hubStaffModal2Handler } from '../../../handlers/ticketHubButtons.js';
 
-export default [hubTicketModalHandler];
+export default [hubTicketModalHandler, hubStaffModal2Handler];
