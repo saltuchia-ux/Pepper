@@ -26,7 +26,7 @@ export const TICKET_HUB = {
         // The staff application panel posts itself in the channel with this name (emojis/symbols ignored), e.g. #staff-apply.
         // The channel must already exist. The old #tickets panel is not changed.
         panelChannelName: 'staff-apply',
-        minLevel: 20,
+        minLevel: 0, // 0 = no level needed
         minAge: 14,
         maxWarnings: 0, // "good history" = no warnings. Set higher to allow some.
     },
@@ -66,7 +66,7 @@ export const TICKET_HUB = {
             label: 'Staff Application',
             emoji: '🌙',
             style: 'Danger', // red
-            minLevel: 20, // kept in sync with staffApp.minLevel below
+            minLevel: 0, // kept in sync with staffApp.minLevel below
             application: true, // opens the 2-step application form instead of the normal reason box
             intro: '',
         },
