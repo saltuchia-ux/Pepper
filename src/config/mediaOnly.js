@@ -23,6 +23,10 @@ export const MEDIA_ONLY = {
     // false = everyone follows the rule, staff included.
     exemptStaff: false,
 
-    // What the bot says (it pings the person and deletes this notice after a few seconds).
+    // false = the bot only deletes the message and says NOTHING.
+    // true  = it also sends the notice below (pings the person, then deletes the notice after a few seconds).
+    sendWarning: false,
+
+    // The notice (only used when sendWarning is true).
     warning: '{user} this channel is for media only. Send a picture, video or GIF (you can add text with it).',
 };
