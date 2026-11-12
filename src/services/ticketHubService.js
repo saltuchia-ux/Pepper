@@ -67,7 +67,7 @@ export function buildPanel(guild) {
     };
 
     const row = new ActionRowBuilder().addComponents(
-        ...Object.entries(TICKET_HUB.types).map(([key, type]) =>
+        ...Object.entries(TICKET_HUB.types).filter(([key]) => key !== 'staff').map(([key, type]) =>
             new ButtonBuilder()
                 .setCustomId(`${PANEL_BUTTON_PREFIX}${key}`)
                 .setLabel(type.label)
@@ -79,10 +79,70 @@ export function buildPanel(guild) {
     return { embeds: [embed], components: [row] };
 }
 
-function isHubPanel(message, botId) {
+function hasButton(message, botId, customId) {
     return message.author?.id === botId
         && message.components?.some((row) =>
-            row.components?.some((c) => String(c.customId ?? '').startsWith(PANEL_BUTTON_PREFIX)));
+            row.components?.some((c) => String(c.customId ?? '') === customId));
+}
+
+// The old tickets panel is the one with the General button; the staff panel has the Staff button.
+const isHubPanel = (message, botId) => hasButton(message, botId, `${PANEL_BUTTON_PREFIX}general`);
+const isStaffPanel = (message, botId) => hasButton(message, botId, `${PANEL_BUTTON_PREFIX}staff`);
+
+export const findStaffPanelChannel = (guild) => findChannelByName(guild, TICKET_HUB.staffApp.panelChannelName);
+
+/** The staff application panel (its own channel, separate from the tickets panel). */
+export function buildStaffPanel(guild) {
+    const { minLevel, minAge } = TICKET_HUB.staffApp;
+    const embed = {
+        color: 0x010101,
+        title: `${guild.name} Staff Application`,
+        description: [
+            '**Only make a ticket if you meet the requirements:**',
+            '',
+            `• You have to be at least level ${minLevel}`,
+            `• You have to be at least ${minAge} years old`,
+            '• You have to have a good history in the server',
+            '',
+            "**If you don't meet a requirement, DO NOT make a ticket.**",
+        ].join('\n'),
+    };
+
+    const type = TICKET_HUB.types.staff;
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`${PANEL_BUTTON_PREFIX}staff`)
+            .setLabel(type.label)
+            .setEmoji(type.emoji)
+            .setStyle(ButtonStyle[type.style] ?? ButtonStyle.Danger),
+    );
+
+    return { embeds: [embed], components: [row] };
+}
+
+/** Posts or updates the staff application panel in its channel. */
+export async function ensureStaffPanel(guild) {
+    const channel = findStaffPanelChannel(guild);
+    if (!channel) return 'no_channel';
+
+    const me = guild.members.me;
+    const perms = channel.permissionsFor(me);
+    if (!perms?.has(['ViewChannel', 'SendMessages', 'EmbedLinks'])) {
+        logger.warn(`Staff panel: I need View Channel, Send Messages and Embed Links in #${channel.name} (${guild.name})`);
+        return 'missing_permissions';
+    }
+
+    const payload = buildStaffPanel(guild);
+    const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+    const existing = recent?.find((message) => isStaffPanel(message, me.id));
+
+    if (existing) {
+        await existing.edit(payload).catch((error) => logger.error('Staff panel: could not update panel:', error));
+        return 'updated';
+    }
+
+    await channel.send(payload);
+    return 'posted';
 }
 
 /** Makes sure the panel is in the tickets channel: edits the existing one, or posts it if missing. */
@@ -117,6 +177,8 @@ export async function ensureAllTicketPanels(client) {
         try {
             const result = await ensureTicketPanel(guild);
             if (result !== 'no_channel') logger.info(`Ticket hub: panel ${result} in ${guild.name}`);
+            const staffResult = await ensureStaffPanel(guild);
+            if (staffResult !== 'no_channel') logger.info(`Ticket hub: staff panel ${staffResult} in ${guild.name}`);
         } catch (error) {
             logger.error(`Ticket hub: panel failed in ${guild.name}:`, error);
         }
