@@ -100,7 +100,7 @@ export function buildStaffPanel(guild) {
         description: [
             '**Only make a ticket if you meet the requirements:**',
             '',
-            `• You have to be at least level ${minLevel}`,
+            ...(minLevel > 0 ? [`• You have to be at least level ${minLevel}`] : []),
             `• You have to be at least ${minAge} years old`,
             '• You have to have a good history in the server',
             '',
