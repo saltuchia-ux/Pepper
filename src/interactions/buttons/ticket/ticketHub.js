@@ -1,3 +1,3 @@
-import { hubTicketButtonHandler } from '../../../handlers/ticketHubButtons.js';
+import { hubTicketButtonHandler, hubStaffNextButtonHandler } from '../../../handlers/ticketHubButtons.js';
 
-export default [hubTicketButtonHandler];
+export default [hubTicketButtonHandler, hubStaffNextButtonHandler];
