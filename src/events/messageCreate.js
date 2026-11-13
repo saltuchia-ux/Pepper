@@ -176,15 +176,25 @@ async function handleCountingGame(
     const content =
       message.content.trim();
 
-    // Allow prefix commands
+    // Allow prefix commands (the rules still go back to the bottom)
     if (content.startsWith('.')) {
+      await refreshCountingRules(
+        message.channel,
+        config
+      );
+
       return false;
     }
 
-    // Ignore non-number messages
+    // Non-number messages: ignored, but the rules still go back to the bottom
     if (
       !isValidCountingMessage(content)
     ) {
+      await refreshCountingRules(
+        message.channel,
+        config
+      );
+
       return true;
     }
 
