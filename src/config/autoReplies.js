@@ -16,19 +16,17 @@ export const AUTO_REPLIES = [
         userCooldown: 60,
         channelCooldown: 20,
 
+        // Sent as a plain message right under the box so people can hold it and copy it.
+        copyText: 'https://discord.gg/4YzqDyR5wp',
+
         // Black-bordered box (no emojis)
         embed: {
             color: 0x010101,
-            title: 'Image Perms',
+            title: 'Image Perms (do any one)',
             description: [
-                '• **Put This In Your Status**',
-                '```',
-                'https://discord.gg/4YzqDyR5wp',
-                '```',
+                '• **Put This** `https://discord.gg/4YzqDyR5wp` **In Your Status**',
                 '• **Boost the server** and enjoy the server perks',
                 '• **Reach level 10**',
-                '',
-                'Do any one of them and you\'ll get image perms.',
             ].join('\n'),
         },
     },
