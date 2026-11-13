@@ -110,14 +110,31 @@ function emojiToId(emoji) {
         : emoji.name;
 }
 
-// Emojis the bot can actually use (custom ones must come from a server the bot is in).
-function usable(client, emojis) {
+// Emojis the bot can actually use. The bot's emoji list can be out of date (for example an emoji you
+// uploaded after the bot started), so it refreshes the server's emojis and, if it still isn't sure,
+// really tries the emoji on the command message.
+async function usable(message, emojis) {
     const ok = [];
     const bad = [];
+    let refreshed = false;
+
     for (const emoji of emojis) {
         const id = emoji.match(/^<a?:\w+:(\d+)>$/)?.[1];
-        if (id && !client.emojis.cache.has(id)) bad.push(emoji);
-        else ok.push(emoji);
+        if (!id) { ok.push(emoji); continue; }
+
+        if (!message.client.emojis.cache.has(id) && !refreshed) {
+            refreshed = true;
+            await message.guild.emojis.fetch().catch(() => {});
+        }
+        if (message.client.emojis.cache.has(id)) { ok.push(emoji); continue; }
+
+        try {
+            const reaction = await message.react(emoji);
+            await reaction.users.remove(message.client.user.id).catch(() => {});
+            ok.push(emoji);
+        } catch {
+            bad.push(emoji);
+        }
     }
     return { ok, bad };
 }
@@ -153,7 +170,7 @@ export async function handleReactionCommand(message) {
 
         const typed = extractEmojis(parts.slice(3).join(' '));
         if (typed.length) {
-            const { ok, bad } = usable(message.client, typed);
+            const { ok, bad } = await usable(message, typed);
             let text = '';
             if (ok.length) {
                 const list = await addWordReactions(guildId, word, ok);
@@ -177,7 +194,7 @@ export async function handleReactionCommand(message) {
         collector.on('collect', (reaction) => picked.push(emojiToId(reaction.emoji)));
         collector.on('end', async () => {
             try {
-                const { ok, bad } = usable(message.client, [...new Set(picked)]);
+                const { ok, bad } = await usable(prompt, [...new Set(picked)]);
                 if (!ok.length) {
                     await prompt.edit({ content: `No emojis picked, **${word}** was not changed.` }).catch(() => {});
                     return;
