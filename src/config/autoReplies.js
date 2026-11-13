@@ -24,7 +24,7 @@ export const AUTO_REPLIES = [
             color: 0x010101,
             title: 'Image Perms (do any one)',
             description: [
-                '• **Put This** `https://discord.gg/4YzqDyR5wp` **In Your Status**',
+                '• **Put This** `https://discord.gg/4YzqDyR5wp` **In Your Status** (you have to be online)',
                 '• **Boost the server** and enjoy the server perks',
                 '• **Reach level 10**',
             ].join('\n'),
