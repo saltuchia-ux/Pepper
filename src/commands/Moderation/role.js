@@ -654,6 +654,32 @@ async function roleProblem(interaction, roles) {
 // .role c   (make a role)
 // ------------------------------------------
 
+// Every role made with .role c is placed directly above this role (Server Booster).
+// Set to '' to turn this off. (My own top role must be above it, or Discord will not allow it.)
+const NEW_ROLES_GO_ABOVE = '1562688081088479393';
+
+// Moves a new role directly above the role in NEW_ROLES_GO_ABOVE. Returns a note to show, or '' when all is fine.
+async function placeAboveAnchor(guild, role, me) {
+    if (!NEW_ROLES_GO_ABOVE) return '';
+
+    try {
+        await guild.roles.fetch(); // fresh positions (they shift when a role is added)
+        const anchor = guild.roles.cache.get(NEW_ROLES_GO_ABOVE);
+        if (!anchor) return '\n⚠️ I could not find the role to place it above, so it was left at the bottom.';
+
+        const wanted = anchor.position + 1;
+        if (wanted >= me.roles.highest.position) {
+            return `\n⚠️ I could not move it above **${anchor.name}**: my own role must be higher than that spot. Move my bot role up in Server Settings → Roles.`;
+        }
+
+        await role.setPosition(wanted, { reason: 'New roles go above the set role' });
+        return '';
+    } catch (error) {
+        console.error('ROLE POSITION ERROR:', error);
+        return `\n⚠️ The role was made but I could not move it up.\nError: ${error.message}`;
+    }
+}
+
 async function createRole(interaction, name, color) {
     if (!interaction.member?.permissions.has(PermissionFlagsBits.ManageRoles)) {
         throw missingPermission('manage_roles');
@@ -697,9 +723,13 @@ async function createRole(interaction, name, color) {
             reason: `Created by ${interaction.user.tag}`,
         });
 
+        const placeNote = await placeAboveAnchor(guild, role, me);
+
         let response = `✅ Created **${role.name}** successfully!\n🎨 **Name:** ${role.name}`;
 
         if (roleColor) response += `\n🌈 **Color:** ${roleColor}`;
+
+        response += placeNote;
 
         return InteractionHelper.universalReply(interaction, {
             content: response,
