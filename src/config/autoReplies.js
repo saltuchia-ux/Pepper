@@ -21,8 +21,11 @@ export const AUTO_REPLIES = [
             color: 0x010101,
             title: 'Image Perms',
             description: [
+                '• **Put This In Your Status**',
+                '```',
+                'https://discord.gg/4YzqDyR5wp',
+                '```',
                 '• **Boost the server** and enjoy the server perks',
-                '• **Put the server link in your status**',
                 '• **Reach level 10**',
                 '',
                 'Do any one of them and you\'ll get image perms.',
