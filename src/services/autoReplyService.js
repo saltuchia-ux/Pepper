@@ -1,4 +1,4 @@
-import { PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { AUTO_REPLIES, AUTO_REPLY_IGNORED_CHANNEL_IDS } from '../config/autoReplies.js';
 import { getCommandPrefix } from '../config/bot.js';
 import { logger } from '../utils/logger.js';
@@ -40,6 +40,16 @@ export async function handleAutoReply(message) {
             embeds: [rule.embed],
             allowedMentions: { parse: [] },
         });
+
+        // The link again as plain text right under the box. Text in an embed can't be copied on a phone,
+        // plain message text can: hold it -> Copy Text. No link preview is shown.
+        if (rule.copyText) {
+            await message.channel.send({
+                content: rule.copyText,
+                flags: MessageFlags.SuppressEmbeds,
+                allowedMentions: { parse: [] },
+            });
+        }
     } catch (error) {
         logger.error('Auto reply error:', error);
     }
