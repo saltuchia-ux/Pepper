@@ -45,7 +45,7 @@ export async function handleAutoReply(message) {
         // plain message text can: hold it -> Copy Text. No link preview is shown.
         if (rule.copyText) {
             const linkMessage = await message.channel.send({
-                content: rule.copyText,
+                content: `<${rule.copyText}>`, // < > = Discord never shows the big server card for it
                 flags: MessageFlags.SuppressEmbeds,
                 allowedMentions: { parse: [] },
             });
