@@ -17,7 +17,8 @@ export const AUTO_REPLIES = [
         channelCooldown: 20,
 
         // Sent as a plain message right under the box so people can hold it and copy it.
-        copyText: 'https://discord.gg/4YzqDyR5wp',
+        // (turned off: no separate link message. Put a link here to send it again under the box.)
+        copyText: '',
 
         // Black-bordered box (no emojis)
         embed: {
