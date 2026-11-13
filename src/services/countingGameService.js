@@ -179,6 +179,10 @@ export async function resetCounting(
 // COUNTING RULES
 // ==========================================
 
+// One refresh at a time per channel. If more messages arrive meanwhile, it runs once more afterwards
+// (so a fast chain of numbers never leaves two rules messages behind).
+const refreshRunning = new Map(); // channelId -> { again: false, config }
+
 export async function refreshCountingRules(
   channel,
   config
@@ -187,10 +191,40 @@ export async function refreshCountingRules(
     return;
   }
 
+  const running = refreshRunning.get(channel.id);
+
+  if (running) {
+    running.again = true;
+    running.config = config;
+    return;
+  }
+
+  const state = { again: false, config };
+  refreshRunning.set(channel.id, state);
+
+  try {
+    await doRefreshCountingRules(channel, config);
+
+    while (state.again) {
+      state.again = false;
+      await doRefreshCountingRules(channel, state.config);
+    }
+  } finally {
+    refreshRunning.delete(channel.id);
+  }
+}
+
+async function doRefreshCountingRules(
+  channel,
+  config
+) {
+
   const guildId =
     channel.guild.id;
 
+  // Always use the newest saved message id (the config passed in can be a little old)
   const oldRulesMessageId =
+    database[guildId]?.rulesMessageId ??
     config.rulesMessageId;
 
   // ==========================================
@@ -332,10 +366,12 @@ export async function refreshCountingRules(
   // SAVE NEW RULES MESSAGE ID
   // ==========================================
 
+  // Only the rules message id is saved here. The count itself is saved elsewhere,
+  // so an older config can never put the number back.
   database[guildId] = {
     ...DEFAULT_CONFIG,
-    ...database[guildId],
     ...config,
+    ...database[guildId],
     rulesMessageId:
       rulesMessage.id
   };
