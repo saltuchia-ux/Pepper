@@ -44,11 +44,13 @@ export async function handleAutoReply(message) {
         // The link again as plain text right under the box. Text in an embed can't be copied on a phone,
         // plain message text can: hold it -> Copy Text. No link preview is shown.
         if (rule.copyText) {
-            await message.channel.send({
+            const linkMessage = await message.channel.send({
                 content: rule.copyText,
                 flags: MessageFlags.SuppressEmbeds,
                 allowedMentions: { parse: [] },
             });
+            // Make sure the big server card never shows (Discord can add it a second later).
+            await linkMessage.suppressEmbeds(true).catch(() => {});
         }
     } catch (error) {
         logger.error('Auto reply error:', error);
