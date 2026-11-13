@@ -10,6 +10,7 @@ import { startTempBanChecker } from "../services/tempBanService.js";
 import { syncAllRoleLinks } from "../services/roleLinkService.js";
 import { ensureAllTicketPanels } from "../services/ticketHubService.js";
 import { syncAllStatusRoles } from "../services/statusRoleService.js";
+import { purgeStaleGuilds, promptLockedGuilds } from "../services/accessKeyService.js";
 
 export default {
   name: Events.ClientReady,
@@ -22,6 +23,14 @@ export default {
       startupLog(`Ready! Logged in as ${client.user.tag}`);
       startupLog(`Serving ${client.guilds.cache.size} guild(s)`);
       startupLog(`Loaded ${client.commands.size} commands`);
+
+      // Access key: forget servers Pepper left while offline, then ask locked servers for the key
+      try {
+        await purgeStaleGuilds(client);
+        await promptLockedGuilds(client);
+      } catch (error) {
+        logger.error('Access key startup check failed:', error);
+      }
 
       // Give linked roles to people who already have the trigger role (runs in the background)
       syncAllRoleLinks(client).catch((error) => logger.error('Role link startup sync failed:', error));

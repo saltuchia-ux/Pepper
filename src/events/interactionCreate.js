@@ -19,6 +19,7 @@ import { resolveSlashAccessKey } from '../utils/messageAdapter.js';
 import { isCollectorManagedComponent } from '../utils/collectorComponents.js';
 import { ResponseCoordinator } from '../utils/responseCoordinator.js';
 import { enforceDefaultCommandPermissions } from '../utils/permissionGuard.js';
+import { handleAccessInteraction } from '../services/accessKeyService.js';
 
 const COMMAND_ERROR_SUBTYPES = {
   warn: 'warn_failed',
@@ -55,6 +56,11 @@ export default {
 
     return runWithTraceContext(interactionTraceContext, async () => {
       try {
+        // Access key: handles the Enter Key button/modal and blocks everything else in locked servers
+        if (await handleAccessInteraction(interaction, client)) {
+          return;
+        }
+
         InteractionHelper.patchInteractionResponses(interaction);
         ResponseCoordinator.attach(interaction);
 
