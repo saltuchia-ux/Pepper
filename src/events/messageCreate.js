@@ -19,6 +19,7 @@ import {
   recordCorrectCount,
   refreshCountingRules
 } from '../services/countingGameService.js';
+import { handleMeowGame } from '../services/meowCountingService.js';
 
 const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
 const MESSAGE_XP_RATE_LIMIT_WINDOW_MS = 10000;
@@ -56,6 +57,17 @@ export default {
         );
 
       if (countingProcessed) {
+        return;
+      }
+
+      // ==========================================
+      // MEOW COUNTING GAME
+      // ==========================================
+
+      const meowProcessed =
+        await handleMeowGame(message);
+
+      if (meowProcessed) {
         return;
       }
 
