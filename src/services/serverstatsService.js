@@ -9,7 +9,7 @@ import botConfig from '../config/bot.js';
 export const COUNTER_TYPE_CONFIG = {
   members: {
     label: 'Members + Bots',
-    baseName: 'Members & Bots',
+    baseName: 'Members',
     emoji: '👥'
   },
   members_only: {
@@ -44,12 +44,17 @@ export function getCounterEmoji(type) {
   return getCounterConfig(type).emoji;
 }
 
+// The number is written with fancy digits. Other styles you can paste in:
+//   double-struck 𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡   full width ０１２３４５６７８９   small ⁰¹²³⁴⁵⁶⁷⁸⁹   normal 0123456789
+const FANCY_DIGITS = ['𝟎', '𝟏', '𝟐', '𝟑', '𝟒', '𝟓', '𝟔', '𝟕', '𝟖', '𝟗'];
+
+function fancyNumber(count) {
+  return String(count).replace(/\d/g, (digit) => FANCY_DIGITS[Number(digit)]);
+}
+
+// Channel name, for example:  📊 Members: 𝟔𝟒
 export function formatCounterChannelName(type, count) {
-  const template = botConfig.counters?.defaults?.channelName || '{name}-{count}';
-  const baseName = getCounterBaseName(type);
-  return template
-    .replaceAll('{name}', baseName)
-    .replaceAll('{count}', String(count));
+  return `📊 ${getCounterBaseName(type)}: ${fancyNumber(count)}`;
 }
 
 export function getCounterActionMessage(action, values = {}) {
