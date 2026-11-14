@@ -52,6 +52,9 @@ export default {
 
     abuseProtection: { enabled: false },
 
+    // lets ".meowcounting setup" (no channel) reach prefixExecute instead of showing usage
+    customPrefixValidation: true,
+
     async execute(interaction, config, client) {
         if (!interaction.member?.permissions?.has(PermissionFlagsBits.BanMembers)) {
             return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, PermissionFlagsBits.BanMembers));
@@ -66,7 +69,8 @@ export default {
     },
 
     async prefixExecute(interaction, config, client) {
-        const message = interaction.message || interaction;
+        // the prefix adapter gives a mock interaction: the real message lives on the response coordinator
+        const message = interaction.message ?? interaction._responseCoordinator?.message ?? interaction;
 
         if (!message.member?.permissions?.has(PermissionFlagsBits.BanMembers)) {
             return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, PermissionFlagsBits.BanMembers));
