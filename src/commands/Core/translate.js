@@ -130,23 +130,40 @@ async function readInput(interaction) {
         typed = String(interaction.options.getString('text') ?? '').trim();
     }
 
-    if (typed) return { text: typed, from: null };
+    if (typed) return { text: typed, from: null, original };
 
     // no text: translate the message they replied to
     if (original?.reference?.messageId) {
         const replied = await original.fetchReference().catch(() => null);
         const text = messageText(replied);
-        if (text) return { text, from: replied.member?.displayName ?? replied.author?.username ?? null };
-        return { text: '', from: null, emptyReply: true };
+        if (text) return { text, from: replied.member?.displayName ?? replied.author?.username ?? null, original };
+        return { text: '', from: null, emptyReply: true, original };
     }
 
-    return { text: '', from: null };
+    return { text: '', from: null, original };
 }
 
 // ---------------------------------------------------------------- the command
 
 async function run(interaction) {
     const input = await readInput(interaction);
+
+    // Answer as a real Discord reply to the message of the person who used the command
+    const respond = async (payload) => {
+        const message = input.original;
+        if (interaction._isPrefixCommand && typeof message?.reply === 'function') {
+            try {
+                return await message.reply({
+                    ...payload,
+                    allowedMentions: { parse: [], repliedUser: true },
+                    failIfNotExists: false,
+                });
+            } catch (error) {
+                logger.debug('Translate: could not reply to the message, sending normally:', error);
+            }
+        }
+        return interaction.reply(payload);
+    };
 
     if (!input.text) {
         const description = input.emptyReply
@@ -155,26 +172,26 @@ async function run(interaction) {
                 '`.tr <text>` translates the text into English',
                 '`.tr` as a reply to a message translates that message into English',
             ].join('\n');
-        await interaction.reply({ embeds: [createEmbed({ title: '🌐 Translate', description })] });
+        await respond({ embeds: [createEmbed({ title: '🌐 Translate', description })] });
         return;
     }
 
     const userId = interaction.user?.id;
     const now = Date.now();
     if (userId && now - (lastUse.get(userId) ?? 0) < COOLDOWN_MS) {
-        await interaction.reply({ content: 'Slow down a little, try again in a few seconds.' });
+        await respond({ content: 'Slow down a little, try again in a few seconds.' });
         return;
     }
     if (userId) lastUse.set(userId, now);
 
     if (input.text.length > MAX_TEXT) {
-        await interaction.reply({ content: `That is too long to translate (max ${MAX_TEXT} characters).` });
+        await respond({ content: `That is too long to translate (max ${MAX_TEXT} characters).` });
         return;
     }
 
     const ai = resolveAi(process.env, { model: null });
     if (ai.error) {
-        await interaction.reply({ content: 'Translation is not set up yet (the bot needs its AI key).' });
+        await respond({ content: 'Translation is not set up yet (the bot needs its AI key).' });
         return;
     }
 
@@ -183,12 +200,12 @@ async function run(interaction) {
         result = parseAnswer(await askModel(ai, SYSTEM_PROMPT, `<text>\n${input.text}\n</text>`));
     } catch (error) {
         logger.warn('Translate: AI request failed', { status: error.response?.status, message: error.message });
-        await interaction.reply({ content: 'Could not translate right now. Try again in a moment.' });
+        await respond({ content: 'Could not translate right now. Try again in a moment.' });
         return;
     }
 
     if (!result) {
-        await interaction.reply({ content: 'Could not translate that.' });
+        await respond({ content: 'Could not translate that.' });
         return;
     }
 
@@ -196,13 +213,12 @@ async function run(interaction) {
     if (result.language) lines.push(`${result.language} → English`);
     if (input.from) lines.push(`message from ${input.from}`);
 
-    await interaction.reply({
+    await respond({
         embeds: [createEmbed({
             title: '🌐 Translation',
             description: clip(result.translation, 3900),
             footer: lines.join(' • ') || 'English',
         })],
-        allowedMentions: { parse: [] },
     });
 }
 
