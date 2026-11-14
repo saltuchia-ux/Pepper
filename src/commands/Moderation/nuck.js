@@ -24,17 +24,29 @@ import { getPrefixText } from '../../utils/punishmentTools.js';
 // DELETE itself is rate-limited by Discord's servers, not by this code, so
 // even perfect code cannot make 20,000 messages disappear "per second" here.
 // Only the last 14 days can be removed this way, a Discord limit as well.
+//
+// WITH A NUMBER:  .nuck 100   /   .nuck 1000   (same for .boom)
+// Only that many of the newest messages are deleted and the channel is NOT recreated.
+// (Messages older than 14 days can not be bulk-deleted by Discord, so it stops there.)
+// A word or anything that is not a number is refused, it never wipes the whole channel by accident.
 // ==========================================
 
 const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
+const MAX_AMOUNT = 10000;
 const THREAD_TYPES = [ChannelType.PublicThread, ChannelType.PrivateThread, ChannelType.AnnouncementThread];
 
 export default {
     data: new SlashCommandBuilder()
         .setName('nuck')
         .setDescription('Delete all messages in this channel (fast)')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addIntegerOption((option) => option
+            .setName('amount')
+            .setDescription('How many of the newest messages to delete (leave empty to wipe the whole channel)')
+            .setMinValue(1)
+            .setMaxValue(MAX_AMOUNT)
+            .setRequired(false)),
     category: 'moderation',
 
     abuseProtection: {
@@ -52,7 +64,7 @@ export default {
     },
 };
 
-async function runNuck(interaction) {
+export async function runNuck(interaction) {
     if (!interaction.member?.permissions?.has(PermissionFlagsBits.Administrator)) {
         return InteractionHelper.universalReply(interaction, missingPermissionPayload(interaction.user.id, 'administrator'));
     }
@@ -64,6 +76,20 @@ async function runNuck(interaction) {
             content: '❌ This command can only be used in a text channel.',
             ephemeral: true,
         });
+    }
+
+    // ---- how many messages? (nothing = wipe the whole channel, like always)
+    const { amount, invalid, commandMessage } = await readAmount(interaction);
+
+    if (invalid) {
+        return InteractionHelper.universalReply(interaction, {
+            content: `❌ Use \`.nuck\` to wipe the channel, or \`.nuck 100\` to delete the newest 100 messages (1 - ${MAX_AMOUNT}).`,
+            ephemeral: true,
+        });
+    }
+
+    if (amount) {
+        return deleteAmount(interaction, channel, amount, commandMessage);
     }
 
     const me = channel.guild.members.me;
@@ -204,4 +230,107 @@ function fetchBatch(channel, beforeId) {
     if (beforeId) options.before = beforeId;
 
     return channel.messages.fetch(options).catch(() => null);
+}
+
+// ----- the number after the command -----
+// Prefix:  the text after ".nuck"  (before anything is sent, fetchReply() is the message the person typed)
+// Slash:   the "amount" option
+async function readAmount(interaction) {
+    let raw = '';
+    let commandMessage = null;
+
+    if (interaction._isPrefixCommand) {
+        commandMessage = await interaction.fetchReply().catch(() => null);
+        raw = commandMessage?.content
+            ? commandMessage.content.replace(/^\s*\S+\s*/, '').trim()
+            : (interaction.options?._hoistedOptions ?? []).map((option) => String(option.value)).join(' ').trim();
+    } else {
+        const value = interaction.options?.getInteger?.('amount');
+        raw = value === null || value === undefined ? '' : String(value);
+    }
+
+    if (!raw) return { amount: 0, invalid: false, commandMessage };
+
+    const firstWord = raw.split(/\s+/)[0].replace(/[,_]/g, '');
+
+    if (!/^\d+$/.test(firstWord)) return { amount: 0, invalid: true, commandMessage };
+
+    const amount = Number(firstWord);
+
+    if (amount < 1 || amount > MAX_AMOUNT) return { amount: 0, invalid: true, commandMessage };
+
+    return { amount, invalid: false, commandMessage };
+}
+
+// ----- delete only the newest N messages -----
+async function deleteAmount(interaction, channel, amount, commandMessage) {
+    const isPrefix = Boolean(interaction._isPrefixCommand);
+    const me = channel.guild?.members?.me;
+
+    if (!channel.permissionsFor?.(me)?.has(PermissionFlagsBits.ManageMessages)) {
+        return InteractionHelper.universalReply(interaction, {
+            content: '❌ I need the **Manage Messages** permission in this channel.',
+            ephemeral: true,
+        });
+    }
+
+    if (!isPrefix) await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+    // the ".nuck 100" message itself goes first, so the 100 that follow are the real ones
+    if (commandMessage?.deletable) await commandMessage.delete().catch(() => {});
+
+    let left = amount;
+    let deleted = 0;
+    let before = commandMessage?.id;
+    let hitOldMessages = false;
+    let failed = false;
+
+    while (left > 0) {
+        const options = { limit: Math.min(BATCH_SIZE, left) };
+        if (before) options.before = before;
+
+        const batch = await channel.messages.fetch(options).catch(() => null);
+
+        if (!batch || batch.size === 0) break;
+
+        before = batch.last().id; // the oldest message of this batch
+
+        const recent = batch.filter((message) => Date.now() - message.createdTimestamp < TWO_WEEKS_MS - 60 * 1000);
+
+        if (recent.size > 0) {
+            const removed = await channel.bulkDelete(recent, true).catch(() => null);
+
+            if (!removed) {
+                failed = true;
+                break;
+            }
+
+            deleted += removed.size;
+        }
+
+        left -= batch.size;
+
+        if (recent.size < batch.size) {
+            hitOldMessages = true; // Discord can not bulk-delete messages older than 14 days
+            break;
+        }
+    }
+
+    let text;
+
+    if (failed && deleted === 0) {
+        text = '❌ I could not delete the messages. Make sure the bot has **Manage Messages** permission.';
+    } else {
+        text = `DONE BOSS (${deleted} deleted)`;
+        if (hitOldMessages) text += '\nThe rest is older than 14 days and Discord does not allow deleting those in bulk.';
+        if (failed) text += '\nI stopped early because Discord refused a delete.';
+    }
+
+    if (isPrefix) {
+        const note = await channel.send({ content: text }).catch(() => null);
+        if (note) setTimeout(() => note.delete().catch(() => {}), 6000);
+        return;
+    }
+
+    return interaction.editReply({ content: text }).catch(() => {});
 }
