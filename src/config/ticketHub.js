@@ -26,7 +26,8 @@ export const TICKET_HUB = {
         // The staff application panel posts itself in the channel with this name (emojis/symbols ignored), e.g. #staff-apply.
         // The channel must already exist. The old #tickets panel is not changed.
         panelChannelName: 'staff-apply',
-        minLevel: 0, // 0 = no level needed
+        minLevel: 0, // 0 = no level needed (anyone can open the ticket)
+        panelLevel: 20, // only shown as text on the staff panel, NOT enforced
         minAge: 14,
         maxWarnings: 0, // "good history" = no warnings. Set higher to allow some.
     },
