@@ -93,14 +93,15 @@ export const findStaffPanelChannel = (guild) => findChannelByName(guild, TICKET_
 
 /** The staff application panel (its own channel, separate from the tickets panel). */
 export function buildStaffPanel(guild) {
-    const { minLevel, minAge } = TICKET_HUB.staffApp;
+    const { minLevel, panelLevel, minAge } = TICKET_HUB.staffApp;
+    const shownLevel = panelLevel || minLevel;
     const embed = {
         color: 0x010101,
         title: `${guild.name} Staff Application`,
         description: [
             '**Only make a ticket if you meet the requirements:**',
             '',
-            ...(minLevel > 0 ? [`• You have to be at least level ${minLevel}`] : []),
+            ...(shownLevel > 0 ? [`• You have to be at least level ${shownLevel}`] : []),
             `• You have to be at least ${minAge} years old`,
             '• You have to have a good history in the server',
             '',
