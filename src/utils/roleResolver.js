@@ -1,10 +1,15 @@
 // Finds a role by mention, ID or (fuzzy) name. Same matching rules as .grole / .trole.
 // Returns { role } or { error }.
 
-function normalizeName(text) {
+// Makes names easy to compare. "+" and a "-" at the end of a word MATTER ("18+" is not "18-"):
+//   "V 18+ adult"  ->  "v 18 plus adult"      "18- minor"  ->  "18 minus minor"      "18 +"  ->  "18 plus"
+// Every other symbol (emoji, dots, hyphens inside a word...) is ignored like before.
+export function normalizeName(text) {
     return String(text)
         .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]/gu, '')
+        .replace(/\+/g, ' plus ')
+        .replace(/-+(?=\s|$)/g, ' minus ')
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }

@@ -1,7 +1,7 @@
 // messageAdapter.js
 
 import { mapArgumentsToOptions } from './prefixParser.js';
-import { resolveUserArguments } from './userResolver.js';
+import { resolveSmartArguments } from './argumentResolver.js';
 import { createEmbed } from './embeds.js';
 import { handleInteractionError } from './errorHandler.js';
 import { logger } from './logger.js';
@@ -190,8 +190,9 @@ export function supportsPrefixExecution(command) {
 }
 
 export async function executePrefixCommand(command, message, args, client, prefixOverride = null, guildConfig = null) {
-  // Turns a typed username / display name into a mention, so every command accepts names
-  args = await resolveUserArguments(message, command.data, args);
+  // Works out which typed words are a user / role / channel (names with spaces, + or - too)
+  // and turns them into mentions, so every command - also future ones - accepts names
+  args = await resolveSmartArguments(message, command.data, args);
 
   const mockInteraction = createMockInteraction(message, command.data, args);
   const coordinator = mockInteraction._responseCoordinator;

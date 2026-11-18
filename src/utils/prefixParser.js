@@ -147,8 +147,17 @@ export function mapArgumentsToOptions(args, commandData) {
 
   for (let i = 0; i < Math.min(currentArgs.length, optionDefs.length); i++) {
     const optionDef = optionDefs[i];
-    const value = currentArgs[i];
-    
+    let value = currentArgs[i];
+
+    // The LAST text option takes ALL the words that are left, so spaces never cut it off:
+    //   .ban @Bob being very rude   ->  reason = "being very rude"   (not just "being")
+    const isLast = i === optionDefs.length - 1;
+    const isFreeText = optionDef.type === 3 && !(optionDef.choices?.length);
+
+    if (isLast && isFreeText && currentArgs.length > optionDefs.length) {
+      value = currentArgs.slice(i).join(' ');
+    }
+
     options[optionDef.name] = value;
   }
 
