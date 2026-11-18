@@ -36,7 +36,7 @@ export default {
                         .setDescription("The channel type to create for this tracker")
                         .setRequired(true)
                         .addChoices(
-                            { name: "voice channel (recommended)", value: "voice" },
+                            { name: "stage channel (locked, recommended)", value: "voice" },
                             { name: "text channel", value: "text" }
                         )
                 )
