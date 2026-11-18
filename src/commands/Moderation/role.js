@@ -3,7 +3,7 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { TitanBotError, ErrorTypes } from '../../utils/errorHandler.js';
 import { logModerationAction } from '../../utils/moderation.js';
 import { takeUserFromWords, takeUserFromEnd, extractUserId } from '../../utils/userResolver.js';
-import { findRole } from '../../utils/roleResolver.js';
+import { findRole, normalizeName } from '../../utils/roleResolver.js';
 import { getRoleBackup, deleteRoleBackup, backupMinutesLeft } from '../../services/roleBackupService.js';
 import {
     getJailConfig,
@@ -408,11 +408,7 @@ function splitNameAndColor(raw) {
 }
 
 function plainName(text) {
-    return String(text)
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]/gu, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return normalizeName(text);
 }
 
 // Finds a role by EXACT name, ID or @mention (no guessing). Returns the role or null.
@@ -460,8 +456,28 @@ async function splitRoleTexts(guild, words) {
         }
     }
 
-    if (await hasExactRole(guild, text)) return [text];
-    if (words.length === 2) return [words[0], words[1]];
+    // the whole text is one role (with spaces, +, -, emoji...)
+    if (words.length === 1 || await hasExactRole(guild, text)) return [text];
+
+    // two roles with no separator: try every place to cut, EXACT names first
+    for (let cut = 1; cut < words.length; cut++) {
+        const left = words.slice(0, cut).join(' ');
+        const right = words.slice(cut).join(' ');
+
+        if (await hasExactRole(guild, left) && await hasExactRole(guild, right)) return [left, right];
+    }
+
+    // no exact names (typos): if the whole text is not a role, but it cuts into two different roles, use that
+    if (!(await findRole(guild, text)).role) {
+        for (let cut = 1; cut < words.length; cut++) {
+            const left = words.slice(0, cut).join(' ');
+            const right = words.slice(cut).join(' ');
+            const a = (await findRole(guild, left)).role;
+            const b = (await findRole(guild, right)).role;
+
+            if (a && b && a.id !== b.id) return [left, right];
+        }
+    }
 
     return [text];
 }
