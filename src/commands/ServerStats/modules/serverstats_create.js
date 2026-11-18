@@ -29,7 +29,8 @@ export async function handleCreate(interaction, client) {
             return;
         }
 
-        const targetChannelType = channelType === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText;
+        // "voice" now makes a Stage channel that nobody can join
+        const targetChannelType = channelType === 'voice' ? ChannelType.GuildStageVoice : ChannelType.GuildText;
         const baseChannelName = getCounterBaseName(type);
 
         const counters = await getServerCounters(client, guild.id);
@@ -46,6 +47,11 @@ export async function handleCreate(interaction, client) {
             name: baseChannelName,
             type: targetChannelType,
             parent: category.id,
+            permissionOverwrites: channelType === 'voice' ? [{
+                id: guild.roles.everyone.id,
+                allow: [PermissionFlagsBits.ViewChannel],
+                deny: [PermissionFlagsBits.Connect, PermissionFlagsBits.RequestToSpeak]
+            }] : [],
             reason: `Counter channel created by ${interaction.user.tag}`
         });
 
@@ -80,7 +86,7 @@ export async function handleCreate(interaction, client) {
         }
 
         await InteractionHelper.safeEditReply(interaction, {
-            embeds: [successEmbed(`**Counter Created Successfully!**\n\n**Type:** ${getCounterTypeLabel(type)}\n**Channel Type:** ${targetChannel.type === ChannelType.GuildVoice ? 'voice' : 'text'}\n**Category:** ${category}\n**Channel:** ${targetChannel}\n**Channel Name:** ${targetChannel.name}\n**Counter ID:** \`${newCounter.id}\`\n\nThe counter will automatically update every 15 minutes.\n\nUse \`/serverstats list\` to view all counters.`)]
+            embeds: [successEmbed(`**Counter Created Successfully!**\n\n**Type:** ${getCounterTypeLabel(type)}\n**Channel Type:** ${targetChannel.type === ChannelType.GuildStageVoice ? 'stage (locked)' : 'text'}\n**Category:** ${category}\n**Channel:** ${targetChannel}\n**Channel Name:** ${targetChannel.name}\n**Counter ID:** \`${newCounter.id}\`\n\nThe counter will automatically update every 15 minutes.\n\nUse \`/serverstats list\` to view all counters.`)]
         }).catch(logger.error);
 
     } catch (error) {
